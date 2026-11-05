@@ -433,8 +433,8 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
         <span id="mapInfo">Sin GPS todavía</span>
       </div>
       <div class="leyenda">
-        <span><i style="background:#1e6fd9"></i>Mi ruta guardada</span>
-        <span><i style="background:#ff8a00"></i>Por donde he pasado hoy</span>
+        <span><i style="background:#1a73e8;box-shadow:0 0 0 2px #fff,0 0 0 3px #c9d3dc"></i>Por donde he pasado hoy</span>
+        <span><i style="background:#7a8ea3;opacity:.6"></i>Mi ruta guardada</span>
         <span><i style="background:#15181a;height:10px;width:10px;border-radius:50%"></i>Punto de control</span>
       </div>
     </section>
@@ -1369,8 +1369,11 @@ function abrirMapa(){
       L.circleMarker([P.lat,P.lon], {radius:7, color:"#ffffff", weight:2, fillColor:"#15181a", fillOpacity:1})
         .bindTooltip(P.nombre, {permanent:true, direction:"top", offset:[0,-6], className:"pc"}).addTo(M.mapa);
     });
-    M.ruta = L.polyline([], {color:"#1e6fd9", weight:7, opacity:.5}).addTo(M.mapa);
-    M.traza = L.polyline([], {color:"#ff8a00", weight:4, opacity:.95}).addTo(M.mapa);
+    // Estilo de navegación: cada línea tiene un "borde" más ancho debajo y puntas redondeadas
+    const suave = {lineCap:"round", lineJoin:"round", smoothFactor:1.5, interactive:false};
+    M.ruta = L.polyline([], {...suave, color:"#7a8ea3", weight:9, opacity:.45}).addTo(M.mapa);          // mi ruta guardada (gris azulado)
+    M.trazaBorde = L.polyline([], {...suave, color:"#ffffff", weight:10, opacity:.95}).addTo(M.mapa);  // borde blanco
+    M.traza = L.polyline([], {...suave, color:"#1a73e8", weight:6, opacity:1}).addTo(M.mapa);          // por donde he pasado (azul)
     M.proximo = L.circleMarker([0,0], {radius:14, color:"#ffbf1f", weight:4, fill:false}).addTo(M.mapa);
     M.yo = L.marker([0,0], {icon:ICONO_BUS, interactive:false, zIndexOffset:1000, keyboard:false});
     // Si mueves el mapa con el dedo, deja de seguirte para que puedas mirar
@@ -1398,8 +1401,8 @@ function abrirMapa(){
   }
   ponerTema();
   setTimeout(()=> M.mapa.invalidateSize(), 50);
-  cargarCalles().then(()=>{ M.ultimaPos = null; pintarMapa(); });
-  M.trazaDibujada = 0; M.rutaDibujada = null; M.claveVueltas = null; // redibujar todo una vez al abrir
+  cargarCalles().then(()=>{ M.ultimaPos = null; M.pedazos = null; pintarMapa(); }); // con las calles listas, redibujar pegado
+  M.trazaDibujada = 0; M.pedazos = null; M.rutaDibujada = null; M.claveVueltas = null; // redibujar todo una vez al abrir
   pintarMapa(); pintarPanelRuta(); pintarBrujula();
 }
 function verTodo(){
@@ -1546,11 +1549,21 @@ function pintarMapa(){
   if(clave !== M.claveVueltas){ M.claveVueltas = clave; pintarPanelRuta(); }
   // La ruta guardada solo se redibuja si cambió
   if(M.rutaDibujada !== st.ruta){ M.rutaDibujada = st.ruta; M.ruta.setLatLngs(st.ruta ? st.ruta.pts.map(q=>[q[0],q[1]]) : []); }
-  // El recorrido: solo se agregan los puntos nuevos (no se redibuja todo)
+  // El recorrido: solo se agregan los puntos nuevos (no se redibuja todo).
+  // Se corta en pedazos cuando hay un hueco (GPS apagado), para no unir sitios lejanos con una raya.
   const T = trazaActual();
-  if(T.length < M.trazaDibujada){ M.traza.setLatLngs([]); M.trazaDibujada = 0; }
-  for(let i=M.trazaDibujada; i<T.length; i++) M.traza.addLatLng([T[i][0], T[i][1]]);
+  if(T.length < M.trazaDibujada || !M.pedazos){ M.pedazos = []; M.trazaDibujada = 0; }
+  let cambio = false;
+  for(let i=M.trazaDibujada; i<T.length; i++){
+    const q = pegarACalle(T[i][0], T[i][1]);        // el rastro también va pegado a la calle
+    const prev = i>0 ? T[i-1] : null;
+    const hueco = !prev || (T[i][2] - prev[2] > 60000) || distancia({lat:T[i][0],lon:T[i][1]},{lat:prev[0],lon:prev[1]}) > 300;
+    if(hueco || !M.pedazos.length) M.pedazos.push([]);
+    M.pedazos[M.pedazos.length-1].push(q);
+    cambio = true;
+  }
   M.trazaDibujada = T.length;
+  if(cambio){ M.traza.setLatLngs(M.pedazos); M.trazaBorde.setLatLngs(M.pedazos); }
   if(st.cfg){ const P = st.plan[st.idx]; M.proximo.setLatLng([P.lat,P.lon]); }
   if(st.pos){
     // Solo cuando llega una posición distinta (si no, el bus avanzaría a tirones)
