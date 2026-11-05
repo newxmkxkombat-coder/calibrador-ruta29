@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notificación RECOGIDA: ya muestra el tiempo, el punto y los botones -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+        <TextView
+            android:id="@+id/tvGrande"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification.Title"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:text="—" />
+        <TextView
+            android:id="@+id/tvLinea"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@android:style/TextAppearance.Material.Notification"
+            android:textSize="13sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/btMarcar"
+        android:layout_width="46dp"
+        android:layout_height="40dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/boton_notif"
+        android:gravity="center"
+        android:text="✓"
+        android:textColor="#2F7FC4"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:contentDescription="Ya marqué" />
+    <TextView
+        android:id="@+id/btDevolver"
+        android:layout_width="46dp"
+        android:layout_height="40dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/boton_notif"
+        android:gravity="center"
+        android:text="↩"
+        android:textColor="#2F7FC4"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:contentDescription="Devolver" />
+</LinearLayout>

@@ -355,19 +355,19 @@ public class TrackerService extends Service implements LocationListener {
         double minRest = (p.optLong("t") - ahora) / 60000.0;
 
         if (marcas.has(String.valueOf(p.optInt("i")))) {
-            notificar("Día terminado", "Mira el resumen en la app");
+            notificar("🏁 Terminado", "", "Vuelta o día terminado", "Mira el resumen en la app." + ultimoTexto());
             return;
         }
         if (p.optBoolean("salida")) {
-            String txt = minRest > 0 ? "Sales de " + nombre + " a las " + hora + " · faltan " + (int) Math.ceil(minRest) + " min"
-                    : "¡Hora de arrancar de " + nombre + "!";
-            notificar("Arranque", txt);
+            String grande = minRest > 0 ? "Sales en " + (int) Math.ceil(minRest) + " min" : "¡Arranca ya!";
+            String color = minRest > 1 ? "ok" : minRest > 0 ? "warn" : "bad";
+            notificar(grande, color, "Salida " + nombre + " · " + hora, "Arranque de la vuelta." + ultimoTexto());
             if (minRest <= 1 && minRest > 0 && !avisoUnMinuto) { avisoUnMinuto = true; hablar("Prepárate, en un minuto arrancas.", true); }
             if (minRest <= 0 && !avisoSalga) { avisoSalga = true; hablar("Ya es hora de arrancar.", true); }
             return;
         }
         if (la == null || a == null) {
-            notificar(nombre + " " + hora, "Esperando señal de GPS…");
+            notificar("—", "", nombre + " · " + hora, "Esperando señal de GPS…" + ultimoTexto());
             return;
         }
         double dist = distancia(la, lo, p.optDouble("lat"), p.optDouble("lon")) * factorCalles;
@@ -416,10 +416,9 @@ public class TrackerService extends Service implements LocationListener {
         }
 
         String signo = delta >= 0 ? "+" : "−";
-        // Puntico de color al inicio: verde = bien, amarillo = justo, rojo = atrasado
-        String punto = cls.equals("ok") ? "🟢 " : cls.equals("warn") ? "🟡 " : "🔴 ";
-        notificar(punto + signo + String.format(Locale.US, "%.1f", Math.abs(delta)) + " min · " + nombre + " " + hora,
-                msg + " Faltan " + (dist >= 1000 ? String.format(Locale.US, "%.1f km", dist / 1000) : Math.round(dist) + " m") + ultimoTexto());
+        String faltan = dist >= 1000 ? String.format(Locale.US, "%.1f km", dist / 1000) : Math.round(dist) + " m";
+        notificar(signo + String.format(Locale.US, "%.1f", Math.abs(delta)) + " min", cls,
+                nombre + " " + hora + " · faltan " + faltan, msg + ultimoTexto());
 
         String estadoVoz = cls + (riesgo ? "-riesgo" : "");
         if (!estadoVoz.equals(ultimoEstado)) {
@@ -446,7 +445,7 @@ public class TrackerService extends Service implements LocationListener {
         }
         if (mejor == null) return "";
         double m = (mejor.optLong("t") - mejorT) / 60000.0;
-        return "\nÚltimo: " + mejor.optString("nombre") + " " + (m >= 0 ? "+" : "−") + String.format(Locale.US, "%.1f", Math.abs(m)) + " min";
+        return " Último: " + mejor.optString("nombre") + " " + (m >= 0 ? "+" : "−") + String.format(Locale.US, "%.1f", Math.abs(m)) + " min";
     }
 
     // ================= VOZ =================
@@ -483,35 +482,64 @@ public class TrackerService extends Service implements LocationListener {
     }
 
     private String ultimaNotif = "";
-    private void notificar(String titulo, String texto) {
-        String clave = titulo + "|" + texto;
+    // grande: "+2.3 min" · cls: ok/warn/bad (color) · linea: "Las Vegas 12:23 · faltan 1.2 km" · msg: consejo y último punto
+    private void notificar(String grande, String cls, String linea, String msg) {
+        String clave = grande + "|" + cls + "|" + linea + "|" + msg;
         if (clave.equals(ultimaNotif)) return;
         ultimaNotif = clave;
         NotificationManager nm = getSystemService(NotificationManager.class);
-        if (nm != null) nm.notify(ID_NOTIF, notificacion(titulo, texto));
+        if (nm != null) nm.notify(ID_NOTIF, notificacion(grande, cls, linea, msg));
+    }
+    private Notification notificacion(String titulo, String texto) { return notificacion(titulo, "", texto, ""); }
+
+    // Colores del número grande: se leen bien con fondo claro y con fondo oscuro
+    private static int colorDe(String cls) {
+        switch (cls) {
+            case "ok": return 0xFF2E9D5B;
+            case "warn": return 0xFFD08A00;
+            case "bad": return 0xFFE0453F;
+            default: return 0xFF2F7FC4;
+        }
     }
 
-    private Notification notificacion(String titulo, String texto) {
+    private Notification notificacion(String grande, String cls, String linea, String msg) {
         Intent abrir = new Intent(this, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, 0, abrir, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         PendingIntent pp = PendingIntent.getService(this, 1, new Intent(this, TrackerService.class).setAction(DETENER), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent pm = PendingIntent.getService(this, 2, new Intent(this, TrackerService.class).setAction(MARCAR), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent pa = PendingIntent.getService(this, 3, new Intent(this, TrackerService.class).setAction(ANTERIOR), PendingIntent.FLAG_IMMUTABLE);
+
+        // Diseño propio: aunque Android la muestre RECOGIDA, ya se ve el tiempo y los botones
+        android.widget.RemoteViews chica = new android.widget.RemoteViews(getPackageName(), R.layout.notif_compacta);
+        chica.setTextViewText(R.id.tvGrande, grande);
+        chica.setTextColor(R.id.tvGrande, colorDe(cls));
+        chica.setTextViewText(R.id.tvLinea, linea);
+        chica.setOnClickPendingIntent(R.id.btMarcar, pm);
+        chica.setOnClickPendingIntent(R.id.btDevolver, pa);
+
+        android.widget.RemoteViews grandeV = new android.widget.RemoteViews(getPackageName(), R.layout.notif_grande);
+        grandeV.setTextViewText(R.id.tvGrande, grande);
+        grandeV.setTextColor(R.id.tvGrande, colorDe(cls));
+        grandeV.setTextViewText(R.id.tvLinea, linea);
+        grandeV.setTextViewText(R.id.tvMsg, msg.trim());
+        grandeV.setOnClickPendingIntent(R.id.btMarcar, pm);
+        grandeV.setOnClickPendingIntent(R.id.btDevolver, pa);
+        grandeV.setOnClickPendingIntent(R.id.btDetener, pp);
+
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CANAL) : new Notification.Builder(this);
         b.setSmallIcon(R.drawable.ic_bus)
-                .setContentTitle(titulo)
-                .setContentText(texto)
-                .setStyle(new Notification.BigTextStyle().bigText(texto))
+                .setContentTitle(grande + " · " + linea)   // por si el celular no muestra diseños propios
+                .setContentText(msg.trim())
+                .setStyle(new Notification.DecoratedCustomViewStyle())
+                .setCustomContentView(chica)
+                .setCustomBigContentView(grandeV)
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)   // mostrar todo en la pantalla de bloqueo
                 .setCategory(Notification.CATEGORY_NAVIGATION)
                 .setShowWhen(false)
-                .setColor(0xFF2F7FC4)   // solo un toque de azul en el ícono y los botones; el fondo es el normal del celular
-                .addAction(new Notification.Action.Builder(null, "✓ Ya marqué", pm).build())
-                .addAction(new Notification.Action.Builder(null, "↩ Devolver", pa).build())
-                .addAction(new Notification.Action.Builder(null, "Detener", pp).build());
+                .setColor(0xFF2F7FC4);
         if (Build.VERSION.SDK_INT >= 31) b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
         return b.build();
     }
