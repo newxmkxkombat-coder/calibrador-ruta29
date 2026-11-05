@@ -155,6 +155,8 @@ tr.cur td{background:color-mix(in srgb,var(--accent) 12%,var(--panel))}
 /* Mapa */
 #mapa{height:62vh;min-height:320px;width:100%;background:#e8e6e1;position:relative;z-index:0;isolation:isolate} /* el mapa no tapa avisos ni pestañas */
 #mapa[data-tema="noche"]{background:#1b1d22}
+/* Oscurecer el mapa de calles: invertir colores y devolver el tono (como el modo noche de Google Maps) */
+.capa-noche{filter:invert(1) hue-rotate(180deg) brightness(.92) contrast(.92) saturate(.55)}
 .bus-yo{background:none;border:0;position:relative}
 .bus-flecha{position:absolute;inset:0;transform-origin:50% 50%}
 .bus-flecha svg{display:block}
@@ -1242,10 +1244,8 @@ const ESRI = "https://server.arcgisonline.com/ArcGIS/rest/services/";
 const ATRIB = 'Mapa © <a href="https://www.esri.com">Esri</a> · HERE, Garmin, © OpenStreetMap';
 const MAPAS = {
   dia:   ()=> L.tileLayer(ESRI+"World_Street_Map/MapServer/tile/{z}/{y}/{x}", {maxZoom:20, maxNativeZoom:19, keepBuffer:4, updateWhenIdle:false, attribution:ATRIB}),
-  noche: ()=> L.layerGroup([
-    L.tileLayer(ESRI+"Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {maxZoom:20, maxNativeZoom:16, keepBuffer:4, updateWhenIdle:false, attribution:ATRIB}),
-    L.tileLayer(ESRI+"Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", {maxZoom:20, maxNativeZoom:16, keepBuffer:4, updateWhenIdle:false}),
-  ]),
+  // De noche usamos el mismo mapa de calles (con todos los nombres) y lo oscurecemos con un filtro
+  noche: ()=> L.tileLayer(ESRI+"World_Street_Map/MapServer/tile/{z}/{y}/{x}", {maxZoom:20, maxNativeZoom:19, keepBuffer:4, updateWhenIdle:false, attribution:ATRIB, className:"capa-noche"}),
 };
 function temaActual(){
   if(M.tema !== "auto") return M.tema;
@@ -1327,7 +1327,22 @@ function abrirMapa(){
     M.proximo = L.circleMarker([0,0], {radius:14, color:"#ffbf1f", weight:4, fill:false}).addTo(M.mapa);
     M.yo = L.marker([0,0], {icon:ICONO_BUS, interactive:false, zIndexOffset:1000, keyboard:false});
     // Si mueves el mapa con el dedo, deja de seguirte para que puedas mirar
-    M.mapa.on("dragstart", ()=>{ M.seguir = false; $("btnSeguir").classList.remove("on"); });
+    M.mapa.on("dragstart", soltarSeguir);
+    // Apenas pones el dedo, la app deja de mover el mapa (si no, le "gana" a tu dedo).
+    // Si lo arrastras más de 10 px con UN dedo, el mapa queda suelto hasta que toques "Seguirme".
+    const cont = M.mapa.getContainer();
+    let inicio = null;
+    const pos = e => e.touches ? [e.touches[0].clientX, e.touches[0].clientY] : [e.clientX, e.clientY];
+    L.DomEvent.on(cont, "touchstart mousedown", e=>{
+      M.tocando = true;
+      inicio = (e.touches && e.touches.length > 1) ? null : pos(e);   // con dos dedos es zoom, no arrastre
+    });
+    L.DomEvent.on(cont, "touchmove mousemove", e=>{
+      if(!M.tocando || !inicio || (e.touches && e.touches.length > 1)) return;
+      const [x,y] = pos(e);
+      if(Math.hypot(x-inicio[0], y-inicio[1]) > 10) soltarSeguir();
+    });
+    L.DomEvent.on(cont, "touchend touchcancel mouseup mouseleave", ()=>{ M.tocando = false; inicio = null; });
     // Mientras haces zoom con los dedos, no peleamos con tu gesto
     M.mapa.on("zoomstart", ()=>{ M.zoomando = true; });
     M.mapa.on("zoomend", ()=>{ M.zoomando = false; });
@@ -1346,6 +1361,10 @@ function verTodo(){
   const pts = Object.values(PUNTOS).map(P=>[P.lat,P.lon]);
   if(st.ruta) st.ruta.pts.forEach(q=>pts.push([q[0],q[1]]));
   M.mapa.fitBounds(L.latLngBounds(pts).pad(0.08));
+}
+function soltarSeguir(){
+  if(!M.seguir) return;
+  M.seguir = false; $("btnSeguir").classList.remove("on");
 }
 function centrarEnBus(){
   const p = M.hacia ? posAnimada(performance.now()) : [st.pos.lat, st.pos.lon];
@@ -1466,8 +1485,10 @@ function cuadro(t){
   // La flechita apunta hacia donde vas (sumando lo que esté girado el mapa)
   const flecha = M.yo.getElement() && M.yo.getElement().querySelector(".bus-flecha");
   if(flecha) flecha.style.transform = `rotate(${(M.rumbo + (M.mapa.getBearing ? M.mapa.getBearing() : 0)) % 360}deg)`;
-  if(M.orientar && !M.zoomando) M.mapa.setBearing(-M.rumbo);          // el mapa gira con el bus
-  if(M.seguir && !M.zoomando) M.mapa.setView(p, M.mapa.getZoom() < 16 ? 16 : M.mapa.getZoom(), {animate:false, noMoveStart:true});
+  // Mientras tengas el dedo en el mapa, o si lo soltaste, no lo movemos
+  const libre = !M.zoomando && !M.tocando;
+  if(M.orientar && M.seguir && libre) M.mapa.setBearing(-M.rumbo);      // el mapa gira con el bus
+  if(M.seguir && libre) M.mapa.setView(p, M.mapa.getZoom() < 16 ? 16 : M.mapa.getZoom(), {animate:false, noMoveStart:true});
   if(t - M.t0 < M.dur) requestAnimationFrame(cuadro); else M.animando = false;
 }
 function pintarMapa(){
