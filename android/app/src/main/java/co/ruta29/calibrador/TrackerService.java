@@ -41,7 +41,7 @@ public class TrackerService extends Service implements LocationListener {
     static final String INICIAR = "iniciar", DETENER = "detener", MARCAR = "marcar",
             ANTERIOR = "anterior", VOZ_ON = "voz_on", VOZ_OFF = "voz_off";
     static final String PREFS = "motor";
-    static final String CANAL = "ruta";
+    static final String CANAL = "ruta_bloqueo"; // canal nuevo: se ve en la pantalla de bloqueo
     static final int ID_NOTIF = 29;
 
     // Lo que la pantalla lee (con "estado()")
@@ -373,11 +373,17 @@ public class TrackerService extends Service implements LocationListener {
     // ================= NOTIFICACIÓN FIJA =================
     private void crearCanal() {
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel c = new NotificationChannel(CANAL, "Calibrador en ruta", NotificationManager.IMPORTANCE_LOW);
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            nm.deleteNotificationChannel("ruta"); // el canal viejo era "silencioso" y Android lo escondía al bloquear
+            // Importancia normal = se muestra en la pantalla de bloqueo; sin sonido ni vibración
+            NotificationChannel c = new NotificationChannel(CANAL, "Calibrador en ruta", NotificationManager.IMPORTANCE_DEFAULT);
+            c.setSound(null, null);
+            c.enableVibration(false);
+            c.enableLights(false);
             c.setDescription("Muestra cómo vas de tiempo mientras el GPS está activo");
             c.setShowBadge(false);
             c.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC); // se ve con el celular bloqueado
-            getSystemService(NotificationManager.class).createNotificationChannel(c);
+            nm.createNotificationChannel(c);
         }
     }
 
@@ -406,6 +412,8 @@ public class TrackerService extends Service implements LocationListener {
                 .setOnlyAlertOnce(true)
                 .setVisibility(Notification.VISIBILITY_PUBLIC)   // mostrar todo en la pantalla de bloqueo
                 .setCategory(Notification.CATEGORY_NAVIGATION)
+                .setShowWhen(false)
+                .setColor(0xFFE3242B).setColorized(true)  // roja, para que resalte
                 .addAction(new Notification.Action.Builder(null, "✓ Ya marqué", pm).build())
                 .addAction(new Notification.Action.Builder(null, "↩ Devolver", pa).build())
                 .addAction(new Notification.Action.Builder(null, "Detener", pp).build());
