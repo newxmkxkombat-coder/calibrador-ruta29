@@ -266,8 +266,15 @@ public class TrackerService extends Service implements LocationListener {
         cercaD = -1;
         guardarMarcas();
         double dif = (p.optLong("t") - t) / 60000.0;
+        String consejo = "";
+        JSONObject sig; synchronized (candado) { sig = idx < puntos.length() ? punto(idx) : null; }
+        if (sig != null && sig != p && sig.has("tip") && sig.optInt("vuelta") == p.optInt("vuelta")) {
+            double plan = (sig.optLong("t") - p.optLong("t")) / 60000.0, tip = sig.optDouble("tip");
+            if (tip > plan + 1) consejo = " Ojo: hasta " + sig.optString("nombre") + " sueles demorarte "
+                    + Math.round(tip) + " minutos y la planilla da " + Math.round(plan) + ". Sal con ritmo.";
+        }
         hablar((p.optBoolean("salida") ? "Arrancaste de " : "Marcaste ") + p.optString("nombre")
-                + " con " + textoMin(dif) + ".", true);
+                + " con " + textoMin(dif) + "." + consejo, true);
         ultimoEstado = ""; avisoUnMinuto = false; avisoSalga = false;
         actualizar(true);
     }
@@ -336,20 +343,37 @@ public class TrackerService extends Service implements LocationListener {
         double delta = (real - debido) * minTramo;
         if (minRest < 0) delta = Math.min(delta, minRest);
 
+        // PRONÓSTICO: ¿a qué hora llegarías si sigues así? (tiempos aprendidos o ritmo del último minuto)
+        double restante = -1, margen = Double.NaN;
+        if (p.has("tip")) restante = p.optDouble("tip") * (1 - real);
+        else { double v = velocidadReciente(); if (v > 1.5) restante = dist / v / 60.0; }
+        if (restante >= 0) margen = (p.optLong("t") - (ahora + restante * 60000)) / 60000.0;
+
         String cls, msg;
         if (delta < 0) { cls = "bad"; msg = "Vas atrasado, dale un poquito más."; }
         else if (delta < 1.5) { cls = "warn"; msg = "Vas justo, mantén el ritmo."; }
         else if (delta <= 4) { cls = "ok"; msg = "Vas bien de tiempo."; }
         else { cls = "warn"; msg = "Vas muy adelantado, puedes bajar el ritmo."; }
+        // AVISO ANTES DE COLGARTE: aunque ahora vayas bien, si el pronóstico dice tarde, avisa ya
+        boolean riesgo = false;
+        if (!Double.isNaN(margen) && margen < 0 && minRest > 0) {
+            cls = "bad"; riesgo = true;
+            msg = "¡Ojo! A este ritmo llegas a " + nombre + " con " + textoMin(margen) + ". Apura.";
+        } else if (!Double.isNaN(margen) && margen < 1 && cls.equals("ok")) {
+            cls = "warn"; msg = "Vas muy justo para " + nombre + ", no te descuides.";
+        }
 
         String signo = delta >= 0 ? "+" : "−";
         notificar(signo + String.format(Locale.US, "%.1f", Math.abs(delta)) + " min · " + nombre + " " + hora,
                 msg + " Faltan " + (dist >= 1000 ? String.format(Locale.US, "%.1f km", dist / 1000) : Math.round(dist) + " m"));
 
-        if (!cls.equals(ultimoEstado)) {
-            hablar(msg + " " + textoMin(delta) + " para " + nombre + ".", cls.equals("bad"));
-            ultimoEstado = cls;
-        } else if (ahora - ultimaVoz > 120000) { // un aviso cada 2 minutos
+        String estadoVoz = cls + (riesgo ? "-riesgo" : "");
+        if (!estadoVoz.equals(ultimoEstado)) {
+            hablar(riesgo ? msg : msg + " " + textoMin(delta) + " para " + nombre + ".", cls.equals("bad"));
+            ultimoEstado = estadoVoz;
+        } else if (riesgo && ahora - ultimaVoz > 90000) { // en riesgo, repetir cada minuto y medio
+            hablar(msg, true);
+        } else if (!riesgo && ahora - ultimaVoz > 120000) { // un aviso cada 2 minutos
             hablar(textoMin(delta) + " para " + nombre + ".", false);
         }
     }
@@ -442,6 +466,22 @@ public class TrackerService extends Service implements LocationListener {
             return o.toString();
         } catch (Exception e) {
             return "{\"activo\":false}";
+        }
+    }
+
+    // Velocidad promedio del último minuto y medio (más estable que la del instante), en m/s
+    private double velocidadReciente() {
+        synchronized (candado) {
+            int n = traza.size();
+            if (n < 2) return -1;
+            long t = System.currentTimeMillis();
+            double d = 0; int i = n - 1;
+            while (i > 0 && t - (long) traza.get(i - 1)[2] <= 90000) {
+                double[] a = traza.get(i), b = traza.get(i - 1);
+                d += distancia(a[0], a[1], b[0], b[1]); i--;
+            }
+            double seg = (traza.get(n - 1)[2] - traza.get(i)[2]) / 1000.0;
+            return seg >= 20 ? d / seg : -1;
         }
     }
 

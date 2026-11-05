@@ -129,6 +129,12 @@ public class MainActivity extends Activity {
         @JavascriptInterface public boolean activo() { return TrackerService.activo; }
         @JavascriptInterface public String estado() { return TrackerService.estadoJson(); }
         @JavascriptInterface public String traza(int desde) { return TrackerService.trazaJson(desde); }
+        @JavascriptInterface public void pantallaEncendida(boolean on) {
+            runOnUiThread(() -> {
+                if (on) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            });
+        }
         @JavascriptInterface public void compartir(String texto) {
             // Abre el menú de compartir de Android (WhatsApp, etc.)
             Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, texto);

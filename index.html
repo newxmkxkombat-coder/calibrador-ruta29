@@ -57,6 +57,8 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .status .big{font-family:var(--f-display);font-weight:800;font-size:clamp(52px,17vw,84px);line-height:.95;font-variant-numeric:tabular-nums}
 .status.ok .big{color:var(--ok)} .status.warn .big{color:var(--warn)} .status.bad .big{color:var(--bad)}
 .status .msg{font-size:19px;font-weight:600;text-wrap:balance}
+.status .pron{font-size:15px;line-height:1.35;border-top:1px dashed currentColor;padding-top:8px;margin-top:4px;opacity:.95}
+.status .pron small{display:block;color:var(--muted);font-size:12px}
 
 .next{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:end}
 .next .lbl{grid-column:1/-1}
@@ -174,6 +176,25 @@ button.brujula.on .brujula-txt{background:#1e6fd9;color:#fff}
   box-shadow:0 4px 14px rgba(0,0,0,.3)}
 @media (prefers-reduced-motion:no-preference){.aviso-update{animation:parpadeo 1.2s ease-in-out infinite}}
 @keyframes parpadeo{0%,100%{box-shadow:0 0 0 0 rgba(255,191,31,.9),0 4px 14px rgba(0,0,0,.3)}50%{box-shadow:0 0 0 9px rgba(255,191,31,0),0 4px 14px rgba(0,0,0,.3)}}
+/* Pantalla de manejo: fondo de color según cómo vas, números gigantes */
+.manejo{position:fixed;inset:0;z-index:1200;display:flex;flex-direction:column;gap:10px;color:#fff;background:#3a3f3c;
+  padding:calc(14px + env(safe-area-inset-top,0px)) max(18px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px))}
+.manejo.ok{background:#14713f} .manejo.warn{background:#a86400} .manejo.bad{background:#b3191f}
+.mj-top{display:flex;justify-content:space-between;font-family:var(--f-display);font-size:22px;font-weight:700;opacity:.9}
+.mj-top span:last-child{font-family:var(--f-mono)}
+.mj-lbl{font-size:18px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;opacity:.85;margin-top:auto}
+.mj-big{font-family:var(--f-display);font-weight:800;font-size:clamp(90px,34vw,200px);line-height:.85;font-variant-numeric:tabular-nums}
+.mj-msg{font-size:22px;font-weight:700;text-wrap:balance;min-height:1.2em}
+.mj-punto{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;background:rgba(0,0,0,.22);border-radius:14px;padding:14px 16px;margin-top:auto}
+.mj-punto small{display:block;font-size:14px;opacity:.85;font-weight:600}
+.mj-punto b{font-family:var(--f-display);font-size:34px;line-height:1}
+.mj-hora{text-align:right} .mj-hora b{font-family:var(--f-mono)}
+.mj-pron{font-size:17px;font-weight:600;min-height:1.3em;opacity:.95}
+.mj-salir{background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:12px;font-size:17px;padding:14px}
+/* Tabla de lo aprendido */
+.apr td.mas{color:var(--bad);font-weight:700} .apr td.menos{color:var(--ok);font-weight:700}
+.apr td:first-child{font-family:var(--f-body);font-size:13px;white-space:normal;line-height:1.25;min-width:0;width:44%}
+.apr{table-layout:fixed}
 /* Terminar el día */
 button.fin{border:2px solid var(--bad);color:var(--bad);background:var(--panel);font-size:16px;padding:13px}
 .modal{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center;
@@ -248,6 +269,7 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
       <div class="lbl" id="statusLbl">Estado</div>
       <div class="big" id="statusBig">—</div>
       <div class="msg" id="statusMsg">Toca “Iniciar GPS” cuando vayas a arrancar.</div>
+      <div class="pron" id="pronostico" hidden></div>
     </section>
 
     <section class="next">
@@ -263,6 +285,7 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
       <div class="mates" id="mates" aria-label="Compañeros en este punto"></div>
     </section>
 
+    <button class="primary" id="btnManejo" style="font-size:18px;padding:14px">🚗 Pantalla de manejo</button>
     <div class="controls">
       <button class="primary grow" id="btnGps">Iniciar GPS</button>
       <button class="grow" id="btnSim">Modo prueba</button>
@@ -306,6 +329,10 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
       <div style="padding:0 16px 14px"><button class="primary" id="btnShare">📤 Compartir por WhatsApp</button></div>
     </section>
     <section class="card">
+      <h2>Lo que la app aprendió <span id="aprendidoSub"></span></h2>
+      <div id="aprendido"></div>
+    </section>
+    <section class="card">
       <h2>Arranque de hoy</h2>
       <div class="empty" id="daySetupTxt"></div>
       <div style="padding:0 16px 14px"><button id="btnChangeSetup">Cambiar hora o punto de arranque</button></div>
@@ -341,6 +368,19 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
   </div>
 </div>
 
+<!-- PANTALLA DE MANEJO: solo lo importante, en grande, para mirar de reojo -->
+<div class="manejo" id="manejo" hidden>
+  <div class="mj-top"><span id="mjVuelta">Vuelta</span><span id="mjReloj">--:--</span></div>
+  <div class="mj-lbl" id="mjLbl">Adelanto</div>
+  <div class="mj-big" id="mjBig">—</div>
+  <div class="mj-msg" id="mjMsg"></div>
+  <div class="mj-punto">
+    <div><small>Próximo punto</small><b id="mjPunto">—</b></div>
+    <div class="mj-hora"><small id="mjFalta">—</small><b id="mjHora">--:--</b></div>
+  </div>
+  <div class="mj-pron" id="mjPron"></div>
+  <button class="mj-salir" id="btnSalirManejo">✕ Salir</button>
+</div>
 <!-- Aviso pequeño de versión nueva: flota arriba en el centro y parpadea -->
 <button id="updateBox" class="aviso-update" hidden>⬆️ Actualizar app</button>
 <!-- Ventana para confirmar que terminó el día (por si lo toca sin querer) -->
@@ -394,7 +434,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 4; // versión más nueva de la app de Android
+const ULTIMA_APK = 5; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -477,6 +517,59 @@ function cargarRuta(){
   const g = leer("r29-ruta");
   st.ruta = prepararRuta(g && g.pts ? g.pts : RUTA_BASE);
   st.rutaFecha = g && g.fecha;
+}
+
+/* =====================================================================
+   2c. LA APP APRENDE TUS TIEMPOS REALES
+   Cada vez que marcas dos puntos seguidos, guarda cuánto te demoraste
+   en ese tramo y a qué hora. Con los días, sabe tus tiempos de verdad.
+   ===================================================================== */
+const LLAVE_TRAMOS = "r29-tramos";
+let TRAMOS = leer(LLAVE_TRAMOS) || {};   // "fecha|punto" → [tramo, hora de salida, minutos]
+let indiceTramos = null;                 // los mismos datos ordenados por tramo (para buscar rápido)
+function aprenderDeMarcas(marcas, plan){
+  if(!plan || !marcas || st.sim) return;
+  const f = hoy(); let cambio = false;
+  for(let j=1; j<plan.length; j++){
+    const A = plan[j-1], P = plan[j];
+    if(A.vuelta!==P.vuelta || P.salida) continue;     // solo tramos dentro de la misma vuelta
+    const ta = marcas[A.i], tp = marcas[P.i];
+    if(ta==null || tp==null) continue;
+    const clave = f+"|"+P.i;
+    if(TRAMOS[clave]) continue;
+    const min = (tp - ta)/60000;
+    if(min < 1 || min > 60) continue;                  // datos raros (marcas a mano, pausas) no cuentan
+    TRAMOS[clave] = [P.k, new Date(ta).getHours(), +min.toFixed(2)];
+    cambio = true;
+  }
+  if(!cambio) return;
+  // Guardar solo los últimos 60 días
+  const limite = new Date(Date.now() - 60*864e5).toLocaleDateString("en-CA");
+  Object.keys(TRAMOS).forEach(k=>{ if(k.split("|")[0] < limite) delete TRAMOS[k]; });
+  guardar(LLAVE_TRAMOS, TRAMOS);
+  indiceTramos = null;
+}
+function mediana(v){ const a=[...v].sort((x,y)=>x-y), m=a.length>>1; return a.length%2 ? a[m] : (a[m-1]+a[m])/2; }
+// ¿Cuánto te demoras normalmente en el tramo que llega al punto k, saliendo a esa hora?
+function tiempoTipico(k, hora){
+  if(!indiceTramos){
+    indiceTramos = {};
+    Object.entries(TRAMOS).forEach(([clave,[kk,h,min]])=>{ (indiceTramos[kk] = indiceTramos[kk] || []).push({h, min, dia:clave.split("|")[0]}); });
+  }
+  const v = indiceTramos[k] || [];
+  const cerca = v.filter(x=> Math.abs(x.h - hora) <= 1);           // misma hora (± 1 hora)
+  if(cerca.length >= 3) return {min:mediana(cerca.map(x=>x.min)), n:cerca.length, porHora:true};
+  if(v.length >= 3) return {min:mediana(v.map(x=>x.min)), n:v.length, porHora:false};
+  return null;                                                      // todavía no hay suficientes datos
+}
+// Velocidad promedio del último minuto y medio, según el recorrido (más estable que la del instante)
+function velocidadReciente(){
+  const T = trazaActual(), t = ahora();
+  let i = T.length-1; if(i < 1) return null;
+  let d = 0;
+  while(i > 0 && t - T[i-1][2] <= 90000){ d += distancia({lat:T[i][0],lon:T[i][1]},{lat:T[i-1][0],lon:T[i-1][1]}); i--; }
+  const seg = (T[T.length-1][2] - T[i][2])/1000;
+  return seg >= 20 ? d/seg : null;
 }
 
 /* =====================================================================
@@ -590,6 +683,18 @@ function calcular(){
   if(real==null) real = Math.min(1, Math.max(0, 1 - dist/tramo));
   r.delta = (real - debido)*minTramo;
   if(r.minRestantes < 0) r.delta = Math.min(r.delta, r.minRestantes);
+  // PRONÓSTICO: ¿a qué hora llegarías si sigues así?
+  // 1) con tus tiempos de días anteriores en este tramo, o 2) con tu velocidad del último minuto
+  r.tipico = tiempoTipico(P.k, new Date(A.t).getHours());
+  const v = velocidadReciente();
+  let restante = null;
+  if(r.tipico) restante = r.tipico.min * (1 - real);
+  else if(v && v > 1.5) restante = dist / v / 60;
+  if(restante != null){
+    r.llegada = t + restante*60000;
+    r.margen = (P.t - r.llegada)/60000;   // + llegarías con adelanto, − llegarías tarde
+    r.fuente = r.tipico ? "tus días anteriores" : "tu ritmo del último minuto";
+  }
   return r;
 }
 
@@ -623,8 +728,15 @@ function marcar(tReal, j){
   const P = st.plan[st.idx], t = typeof tReal==="number" ? tReal : ahora();
   st.cerca = null;
   marcasActuales()[P.i] = t; guardarMarcas();
+  aprenderDeMarcas(st.marcas, st.plan);
   const dif = (P.t - t)/60000;
-  hablar(P.salida ? `Arrancaste de ${P.nombre} con ${textoMin(dif)}.` : `Marcaste ${P.nombre} con ${textoMin(dif)}.`, true);
+  let consejo = "";
+  const S = st.plan[st.idx+1];
+  if(S && S.vuelta===P.vuelta && !S.salida){
+    const tip = tiempoTipico(S.k, new Date(t).getHours()), plan = (S.t - P.t)/60000;
+    if(tip && tip.min > plan + 1) consejo = ` Ojo: hasta ${S.nombre} sueles demorarte ${Math.round(tip.min)} minutos y la planilla da ${Math.round(plan)}. Sal con ritmo.`;
+  }
+  hablar((P.salida ? `Arrancaste de ${P.nombre} con ${textoMin(dif)}.` : `Marcaste ${P.nombre} con ${textoMin(dif)}.`) + consejo, true);
   if(st.idx < st.plan.length-1) st.idx++;
   st.ultimoEstado = "";
   pintar();
@@ -705,15 +817,82 @@ function pintar(){
     else if(d<1.5){ cls="warn"; msg="Vas justo. Mantén el ritmo o apura un poco."; }
     else if(d<=4){ cls="ok"; msg="Vas bien de tiempo."; }
     else { cls="warn"; msg="Vas muy adelantado. Puedes bajar el ritmo."; }
+    // AVISO ANTES DE COLGARTE: aunque hoy vayas bien, si el pronóstico dice que llegas tarde, avisa ya
+    let riesgo = false;
+    if(r.margen!=null && r.margen < 0 && r.minRestantes > 0){
+      cls = "bad"; riesgo = true;
+      msg = `¡Ojo! A este ritmo llegas a ${P.nombre} con ${textoMin(r.margen)}. Apura.`;
+    } else if(r.margen!=null && r.margen < 1 && cls==="ok"){
+      cls = "warn"; msg = `Vas muy justo para ${P.nombre}. No te descuides.`;
+    }
     box.className = "status "+cls;
     $("statusLbl").textContent = d>=0 ? "Adelanto" : "Atraso";
     $("statusBig").textContent = fmtDif(d)+" min";
     $("statusMsg").textContent = msg;
-    if(cls!==st.ultimoEstado){ hablar(`${msg} ${textoMin(d)} para ${P.nombre}.`, cls==="bad"); st.ultimoEstado=cls; }
+    const estadoVoz = cls + (riesgo ? "-riesgo" : "");
+    if(estadoVoz!==st.ultimoEstado){ hablar(riesgo ? msg : `${msg} ${textoMin(d)} para ${P.nombre}.`, cls==="bad"); st.ultimoEstado=estadoVoz; }
+    else if(riesgo){ if(Date.now()-st.ultimaVoz > 90000) hablar(msg, true); }
     else hablar(`${textoMin(d)} para ${P.nombre}.`);
   }
+  // Línea de pronóstico debajo del estado
+  $("pronostico").hidden = r.llegada==null || P.salida;
+  if(r.llegada!=null) $("pronostico").innerHTML = `🔮 A este ritmo llegas a <b>${P.nombre}</b> a las <b>${fmt(r.llegada)}</b> (${fmtDif(r.margen)}) <small>según ${r.fuente}</small>`;
+  pintarManejo(r, P);
   pintarPlanilla();
 }
+/* ---------- Pantalla de manejo ---------- */
+function pintarManejo(r, P){
+  if($("manejo").hidden) return;
+  const cls = $("status").className.replace("status","").trim();
+  $("manejo").className = "manejo " + cls;
+  $("mjVuelta").textContent = `Vuelta ${P.vuelta}`;
+  $("mjReloj").textContent = fmt(ahora());
+  $("mjLbl").textContent = $("statusLbl").textContent;
+  $("mjBig").textContent = $("statusBig").textContent.replace(" min","");
+  $("mjMsg").textContent = $("statusMsg").textContent;
+  $("mjPunto").textContent = P.salida ? `Salida ${P.nombre}` : P.nombre;
+  $("mjHora").textContent = fmt(P.t);
+  $("mjFalta").textContent = r && r.dist!=null ? `faltan ${r.dist>=1000 ? (r.dist/1000).toFixed(1)+" km" : Math.round(r.dist)+" m"}` : "a las";
+  $("mjPron").textContent = r && r.llegada!=null && !P.salida ? `🔮 Llegarías ${fmt(r.llegada)} (${fmtDif(r.margen)})` : "";
+}
+let wakeManejo = null;
+$("btnManejo").onclick = async ()=>{
+  $("manejo").hidden = false;
+  if(app && app.pantallaEncendida) app.pantallaEncendida(true);       // que no se apague la pantalla
+  else { try{ wakeManejo = await navigator.wakeLock?.request("screen"); }catch(e){} }
+  try{ await document.documentElement.requestFullscreen?.(); }catch(e){}
+  pintar();
+};
+$("btnSalirManejo").onclick = ()=>{
+  $("manejo").hidden = true;
+  if(app && app.pantallaEncendida) app.pantallaEncendida(false);
+  try{ wakeManejo?.release(); }catch(e){} wakeManejo = null;
+  try{ if(document.fullscreenElement) document.exitFullscreen(); }catch(e){}
+};
+
+/* ---------- Lo que la app aprendió (en "Mi día") ---------- */
+function pintarAprendido(){
+  const total = Object.keys(TRAMOS).length;
+  const dias = new Set(Object.keys(TRAMOS).map(k=>k.split("|")[0])).size;
+  $("aprendidoSub").textContent = total ? `${dias} día${dias>1?"s":""}, ${total} tramos` : "";
+  if(!total){
+    $("aprendido").innerHTML = '<div class="empty">Todavía no hay datos. Cada vez que marques dos puntos seguidos, la app guarda cuánto te demoraste. Con unos días de uso aprende tus tiempos reales y te avisa antes de que te cuelgues.</div>';
+    return;
+  }
+  const h = new Date().getHours();
+  let html = '<div class="tbl-wrap"><table class="apr"><thead><tr><th>Tramo</th><th>Planilla</th><th>Tú</th><th>Dif.</th></tr></thead><tbody>';
+  CICLO.forEach((c,k)=>{
+    if(k===0) return;
+    const de = k===1 ? "Caña Brava" : PUNTOS[CICLO[k-1].id].nombre;
+    const plan = c.min - CICLO[k-1].min, tip = tiempoTipico(k, h);
+    const dif = tip ? tip.min - plan : null;
+    html += `<tr><td>${de} → ${PUNTOS[c.id].nombre}</td><td>${plan} min</td><td>${tip ? tip.min.toFixed(1)+" min"+(tip.porHora?"":"*") : "—"}</td>`
+         + `<td class="${dif==null?"na":dif>0.5?"mas":dif<-0.5?"menos":""}">${dif==null?"·":(dif>0?"+":"")+dif.toFixed(1)}</td></tr>`;
+  });
+  html += '</tbody></table></div><div class="empty" style="padding-top:8px">En rojo: tramos donde te demoras más que la planilla. * = todavía no hay datos de esta hora, se usa el promedio de todo el día.</div>';
+  $("aprendido").innerHTML = html;
+}
+
 function pintarCompas(P){
   // Quién pasa por este mismo punto antes y después que yo
   const box = $("mates"); box.innerHTML = "";
@@ -852,6 +1031,7 @@ function planParaMotor(){
       const o = {i:p.i, t:p.t, nombre:p.nombre, lat:p.lat, lon:p.lon, salida:p.salida, vuelta:p.vuelta};
       const A = st.plan[j-1];
       if(st.ruta && A && !p.salida && A.vuelta===p.vuelta){ o.s = st.ruta.S[p.k]; o.sAnt = st.ruta.S[A.k]; }
+      if(A && !p.salida && A.vuelta===p.vuelta){ const tip = tiempoTipico(p.k, new Date(A.t).getHours()); if(tip) o.tip = +tip.min.toFixed(2); }
       return o;
     }),
     ruta: st.ruta ? st.ruta.pts.map(q=>[q[0],q[1]]) : null,
@@ -873,7 +1053,7 @@ function leerMotor(){
     st.vel = e.vel;
     if(e.marcas){
       const nuevas = JSON.stringify(e.marcas);
-      if(nuevas !== st.marcasTxt){ st.marcasTxt = nuevas; st.marcas = e.marcas; guardarMarcas(); }
+      if(nuevas !== st.marcasTxt){ st.marcasTxt = nuevas; st.marcas = e.marcas; guardarMarcas(); aprenderDeMarcas(st.marcas, st.plan); }
     }
     if(typeof e.idx==="number") st.idx = e.idx;
     if(app.traza && typeof e.nTraza==="number"){
@@ -1354,7 +1534,7 @@ function irA(tab){
   });
   if(tab==="Ruta") pintar();
   if(tab==="Planillas") pintarPlanillas();
-  if(tab==="Dia") pintarDia();
+  if(tab==="Dia"){ pintarDia(); pintarAprendido(); }
   if(tab==="Mapa") abrirMapa();
   window.scrollTo(0,0);
 }
@@ -1403,6 +1583,7 @@ if(app){
 try{ localStorage.removeItem("r29-puntos"); }catch(e){} // se usan solo las coordenadas verificadas
 cargarRuta(); cargarTraza(); st.trazaMotor = 0;
 cargarDia();
+aprenderDeMarcas(st.marcas, st.plan);
 { const v = leer("r29-voz"); st.voz = v===null ? true : !!v; } // la voz viene prendida; se apaga desde la app
 if(st.voz){ $("btnVoice").classList.add("on"); $("btnVoice").textContent="🔊 Voz"; }
 if(app) leerMotor();
