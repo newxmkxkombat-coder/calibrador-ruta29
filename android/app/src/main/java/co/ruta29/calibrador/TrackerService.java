@@ -222,7 +222,7 @@ public class TrackerService extends Service implements LocationListener {
         long ahora = System.currentTimeMillis();
         for (int i = 0; i < puntos.length(); i++) {
             JSONObject p = punto(i);
-            if (!marcas.has(String.valueOf(p.optInt("i"))) && p.optLong("t") > ahora - 3 * 60000) return i;
+            if (!marcas.has(String.valueOf(p.optInt("i"))) && p.optLong("t") > ahora - 25 * 60000L) return i;
         }
         return puntos.length() - 1;
     }

@@ -478,7 +478,7 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
 const PUNTOS = {
   cana:    {nombre:"Caña Brava",     corto:"CBr", lat:2.9603658, lon:-75.2733307},
   poli:    {nombre:"Polideportivo",  corto:"Pol", lat:2.9560771, lon:-75.2841492},
-  vegas:   {nombre:"Las Vegas",      corto:"Veg", lat:2.9379439, lon:-75.2959266},
+  vegas:   {nombre:"Las Vegas",      corto:"Veg", lat:2.9382278, lon:-75.2958867},
   caldo:   {nombre:"Caldo Parao",    corto:"Cal", lat:2.9276988, lon:-75.2865874},
   antonio: {nombre:"Antonio Nariño", corto:"Ant", lat:2.9402417, lon:-75.2578678},
   palmas:  {nombre:"Palmas",         corto:"Pal", lat:2.9454504, lon:-75.2420411},
@@ -505,7 +505,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 5; // versión más nueva de la app de Android
+const ULTIMA_APK = 6; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -719,9 +719,9 @@ function cargarDia(){
   if(st.cfg){ st.plan = armarHorario(st.cfg); ubicarIdx(); }
 }
 function ubicarIdx(){
-  // sigue desde el primer punto sin marca cuya hora no haya pasado hace más de 3 minutos
+  // sigue desde el primer punto sin marca de los últimos 25 minutos (por si vas atrasado y la app se reinicia)
   const t = Date.now(), m = st.marcas;
-  let i = st.plan.findIndex(p => m[p.i]==null && p.t > t - 3*60000);
+  let i = st.plan.findIndex(p => m[p.i]==null && p.t > t - 25*60000);
   st.idx = i<0 ? st.plan.length-1 : i;
 }
 
