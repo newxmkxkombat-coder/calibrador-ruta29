@@ -180,6 +180,27 @@ public class MainActivity extends Activity {
             return pm == null || pm.isIgnoringBatteryOptimizations(getPackageName());
         }
         @SuppressLint("BatteryLife")
+        // Abrir la página de la app en Ajustes (ahí está "Uso de batería" / "Actividad en segundo plano")
+        @JavascriptInterface public void abrirAjustesApp() {
+            // Honor / Huawei: ir directo a "Inicio de aplicaciones". Si no existe, la página normal de la app.
+            String[][] pantallas = {
+                {"com.hihonor.systemmanager", "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"},
+                {"com.hihonor.systemmanager", "com.hihonor.systemmanager.optimize.process.ProtectActivity"},
+                {"com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"},
+                {"com.huawei.systemmanager", "com.huawei.systemmanager.optimize.process.ProtectActivity"},
+            };
+            String m = Build.MANUFACTURER.toLowerCase(java.util.Locale.US);
+            if (m.contains("honor") || m.contains("huawei")) {
+                for (String[] p : pantallas) {
+                    try {
+                        startActivity(new Intent().setComponent(new android.content.ComponentName(p[0], p[1])).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                        return;
+                    } catch (Exception ignorado) { }
+                }
+            }
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())));
+        }
+        @JavascriptInterface public String marca() { return Build.MANUFACTURER + " " + Build.MODEL; }
         @JavascriptInterface public void pedirBateria() {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
             if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {

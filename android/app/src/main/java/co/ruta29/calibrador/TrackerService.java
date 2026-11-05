@@ -146,7 +146,10 @@ public class TrackerService extends Service implements LocationListener {
 
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (wake == null && pm != null) {
-            wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ruta29:motor");
+            // En Honor/Huawei el administrador de energía no congela este nombre (es el del servicio de ubicación)
+            String m = Build.MANUFACTURER.toLowerCase(Locale.US);
+            String nombreWake = (m.contains("honor") || m.contains("huawei")) ? "LocationManagerService" : "ruta29:motor";
+            wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, nombreWake);
             wake.acquire(16 * 60 * 60 * 1000L); // máximo 16 horas
         }
         if (tts == null) {
@@ -164,6 +167,7 @@ public class TrackerService extends Service implements LocationListener {
         }
         if (lm == null) conectarGps();
         porUbicar = true;
+        ultimoTic = 0;
         h.removeCallbacks(tic);
         h.post(tic);
     }
@@ -279,9 +283,23 @@ public class TrackerService extends Service implements LocationListener {
     @Override public void onStatusChanged(String p, int s, Bundle b) { }
 
     // Cada 5 segundos: revisar el día, actualizar notificación y voz
+    // El reloj interno corre cada 5 s. Si entre dos "tics" pasan más de 20 s,
+    // es porque el celular CONGELÓ la app (ahorro de batería de la marca).
+    private static volatile int congelamientos = 0;
+    private static volatile long segundosCongelada = 0;
+    private long ultimoTic = 0;
     private final Runnable tic = new Runnable() {
         @Override public void run() {
             if (!activo) return;
+            long ahoraTic = System.currentTimeMillis();
+            if (ultimoTic > 0 && ahoraTic - ultimoTic > 20000) {
+                congelamientos++;
+                segundosCongelada += (ahoraTic - ultimoTic) / 1000;
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putInt("congelamientos", congelamientos).putLong("segCongelada", segundosCongelada).apply();
+                hablar("Ojo: el celular pausó la app " + ((ahoraTic - ultimoTic) / 1000) + " segundos para ahorrar batería.", true);
+            }
+            ultimoTic = ahoraTic;
             String hoy = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
             if (fecha != null && !fecha.isEmpty() && !fecha.equals(hoy)) { detener(); return; }
             long sinGps = ultimaLectura > 0 ? System.currentTimeMillis() - ultimaLectura : 0;
@@ -599,6 +617,8 @@ public class TrackerService extends Service implements LocationListener {
                 o.put("marcas", m);
                 o.put("gps", gps);
                 o.put("nTraza", traza.size());
+                o.put("congelamientos", congelamientos);
+                o.put("segCongelada", segundosCongelada);
                 o.put("gpsTxt", gpsTxt);
             }
             return o.toString();

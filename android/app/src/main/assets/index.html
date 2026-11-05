@@ -209,6 +209,13 @@ button.brujula.on .brujula-txt{background:#1e6fd9;color:#fff}
 .aviso-bateria div{flex:1;min-width:0}
 .aviso-bateria b{display:block;font-size:16px}
 .aviso-bateria span{display:block;font-size:14px;color:var(--muted)}
+.aviso-congela{background:var(--warn-bg);border:1px solid var(--warn);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.aviso-congela b{font-size:17px}
+.aviso-congela p{margin:0;font-size:15px;color:var(--ink)}
+.aviso-congela ol{list-style:decimal;margin:0;padding-left:22px;display:flex;flex-direction:column;gap:8px;font-size:15px;line-height:1.4}
+.aviso-congela ol li{display:list-item;padding:0;border:0;grid-template-columns:none}
+.aviso-congela ol li b, .aviso-congela p b{font-size:inherit}
+.aviso-congela button.link{align-self:flex-start}
 /* ---------- Panel de control ---------- */
 .panel-ctrl{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px}
 .btn-gps{font-size:19px;font-weight:700;padding:16px;border-radius:12px}
@@ -349,6 +356,13 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
     <section class="aviso-bateria" id="avisoUbicacion" hidden>
       <div><b>⚠️ Falta un permiso de ubicación</b><span>Para que el GPS no se corte con la pantalla apagada, escoge <b>“Permitir todo el tiempo”</b>.</span></div>
       <button class="primary" id="btnArreglarUbicacion">Arreglar</button>
+    </section>
+    <section class="aviso-congela" id="avisoCongela" hidden>
+      <b>⚠️ Tu celular pausó la app <span id="congelaVeces"></span></b>
+      <p>Es el ahorro de batería de tu celular: con la pantalla apagada <b>congela la app</b> y por eso se corta el GPS y la voz. Para arreglarlo:</p>
+      <ol id="pasosCongela"></ol>
+      <button class="primary" id="btnAjustesApp">Abrir los ajustes de la app</button>
+      <button class="link" id="btnYaArregle">Ya lo hice, volver a medir</button>
     </section>
     <section class="aviso-bateria" id="avisoBateria" hidden>
       <div><b>⚠️ Tu celular puede dormir la app</b><span>Con la pantalla apagada podría dejar de hablar y de marcar. Escoge <b>“Sin restricciones”</b>.</span></div>
@@ -581,7 +595,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 15; // versión más nueva de la app de Android
+const ULTIMA_APK = 16; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -1352,6 +1366,13 @@ function leerMotor(){
       if(nuevas !== st.marcasTxt){ st.marcasTxt = nuevas; st.marcas = e.marcas; guardarMarcas(); aprenderDeMarcas(st.marcas, st.plan); }
     }
     if(typeof e.idx==="number") st.idx = e.idx;
+    if(typeof e.congelamientos==="number"){
+      st.congelamientos = e.congelamientos;
+      const base = leer("r29-congela-visto") || 0;
+      const nuevas = e.congelamientos - (base > e.congelamientos ? 0 : base);
+      $("avisoCongela").hidden = nuevas <= 0 && !st.avisoHonor;
+      $("congelaVeces").textContent = nuevas > 0 ? `${nuevas} ${nuevas===1?"vez":"veces"} (${Math.round(e.segCongelada/60)} min en total)` : "";
+    }
     if(app.traza && typeof e.nTraza==="number"){
       if(e.nTraza < st.trazaMotor) st.trazaMotor = 0;
       if(e.nTraza > st.trazaMotor){
@@ -1988,6 +2009,42 @@ if(app){
     try{ $("avisoUbicacion").hidden = !app.ubicacionSiempre || app.ubicacionSiempre(); }catch(e){}
   };
   $("btnArreglarUbicacion").onclick = ()=> app.pedirUbicacionSiempre();
+  // Pasos según la marca del celular
+  const marca = (app.marca ? app.marca() : "").toLowerCase();
+  const pasos = /honor|huawei/.test(marca) ? [
+      "Toca <b>Abrir los ajustes de la app</b> (se abre “Inicio de aplicaciones”). Si no, ve a Ajustes → Batería → <b>Inicio de aplicaciones</b>.",
+      "Busca <b>Ruta 29</b> y <b>apaga</b> “Administrar automáticamente”.",
+      "En la ventanita que sale, deja <b>las tres opciones encendidas</b>: Inicio automático, Inicio secundario y <b>Ejecutar en segundo plano</b>. Dale Aceptar.",
+      "Ve a Ajustes → Batería → <b>Más ajustes de batería</b> y activa <b>Mantener conectado mientras el dispositivo está en reposo</b>.",
+      "En las apps recientes (botón ◻️), baja la tarjeta de Ruta 29 para ponerle el <b>candado 🔒</b>." ]
+    : /oppo|realme|oneplus/.test(marca) ? [
+      "Toca <b>Abrir los ajustes de la app</b>.",
+      "Entra a <b>Uso de batería</b> (o “Batería”).",
+      "Activa <b>Permitir actividad en segundo plano</b> y <b>Permitir inicio automático</b>.",
+      "Si sale “Optimizar uso de batería”, escoge <b>No optimizar</b>.",
+      "En las apps recientes (botón ◻️), baja la tarjeta de Ruta 29 para ponerle el <b>candado 🔒</b>." ]
+    : /xiaomi|redmi|poco/.test(marca) ? [
+      "Toca <b>Abrir los ajustes de la app</b>.",
+      "Entra a <b>Ahorro de batería</b> y escoge <b>Sin restricciones</b>.",
+      "Activa <b>Inicio automático</b>.",
+      "En las apps recientes, deja presionada la tarjeta de Ruta 29 y ponle el <b>candado 🔒</b>." ]
+    : /samsung/.test(marca) ? [
+      "Toca <b>Abrir los ajustes de la app</b>.",
+      "Entra a <b>Batería</b> y escoge <b>Sin restricciones</b>.",
+      "En Ajustes → Batería → Límites de uso en segundo plano, quita Ruta 29 de las apps en suspensión." ]
+    : [
+      "Toca <b>Abrir los ajustes de la app</b>.",
+      "Entra a <b>Batería</b> y escoge <b>Sin restricciones</b> o <b>Permitir actividad en segundo plano</b>.",
+      "En las apps recientes, ponle el <b>candado 🔒</b> a Ruta 29 si tu celular lo permite." ];
+  $("pasosCongela").innerHTML = pasos.map(x=>`<li>${x}</li>`).join("");
+  $("btnAjustesApp").onclick = ()=> app.abrirAjustesApp ? app.abrirAjustesApp() : app.pedirBateria();
+  // En Honor/Huawei mostrar los pasos desde el principio (esos celulares congelan las apps casi siempre)
+  st.avisoHonor = /honor|huawei/.test(marca) && !leer("r29-honor-ok");
+  if(st.avisoHonor){ $("avisoCongela").hidden = false; $("congelaVeces").textContent = ""; }
+  $("btnYaArregle").onclick = ()=>{
+    guardar("r29-congela-visto", st.congelamientos||0); guardar("r29-honor-ok", true);
+    st.avisoHonor = false; $("avisoCongela").hidden = true;
+  };
   revisarBateria();
   document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") revisarBateria(); });
 } else {
