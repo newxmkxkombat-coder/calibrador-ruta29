@@ -577,7 +577,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 13; // versión más nueva de la app de Android
+const ULTIMA_APK = 14; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -1325,6 +1325,8 @@ function planParaMotor(){
     ruta: st.ruta ? st.ruta.pts.map(q=>[q[0],q[1]]) : null,
   });
 }
+// Mandarle al motor el horario/ruta nuevos SIN apagarlo (apagar y prender rápido podía dejar el GPS desconectado)
+function actualizarMotor(){ if(app && app.activo()) app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
 function alternarNativo(){
   if(st.sim) pararSim();
   if(app.activo()){ app.detener(); }
@@ -1743,7 +1745,7 @@ function guardarRutaNueva(nombre, pts){
 }
 function usarRuta(id){
   guardar("r29-ruta-activa", id); cargarRuta();
-  if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
+  if(st.nativo){ actualizarMotor(); }
   M.previa && M.mapa.removeLayer(M.previa); M.previa = null;
   pintarPanelRuta(); pintarMapa(); verTodo();
 }
@@ -1752,7 +1754,7 @@ function borrarRuta(id){
   if(borrarPendiente !== id){ borrarPendiente = id; pintarPanelRuta(); setTimeout(()=>{ if(borrarPendiente===id){ borrarPendiente=null; pintarPanelRuta(); } }, 4000); return; }
   borrarPendiente = null;
   const R = leerRutas().filter(r=>r.id!==id); guardar("r29-rutas", R);
-  if(leer("r29-ruta-activa")===id){ guardar("r29-ruta-activa", null); cargarRuta(); if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); } }
+  if(leer("r29-ruta-activa")===id){ guardar("r29-ruta-activa", null); cargarRuta(); if(st.nativo){ actualizarMotor(); } }
   pintarPanelRuta(); pintarMapa();
 }
 function verRuta(id){
@@ -1902,7 +1904,7 @@ $("btnSetupOk").onclick = ()=>{
   st.cfg = c; guardar("r29-config", c); guardar("r29-ultima", c);
   if(cambio){ st.marcas = {}; guardarMarcas(); }
   st.plan = armarHorario(c); ubicarIdx();
-  if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
+  if(st.nativo){ actualizarMotor(); }
   $("setup").hidden = true; $("tabs").hidden = false;
   $("pllSel").value = c.planilla;
   irA("Ruta");
@@ -1956,7 +1958,7 @@ $("btnPrev").onclick = anterior;
 $("selVozCada").value = String(leer("r29-vozcada") || 1);
 $("selVozCada").onchange = ()=>{
   guardar("r29-vozcada", +$("selVozCada").value);
-  if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); } // el motor toma el cambio
+  if(st.nativo){ actualizarMotor(); } // el motor toma el cambio
 };
 $("btnVoice").onclick = ()=>{
   st.voz = !st.voz; $("btnVoice").setAttribute("aria-checked", st.voz);
@@ -2003,7 +2005,7 @@ aprenderDeMarcas(st.marcas, st.plan);
 $("btnVoice").setAttribute("aria-checked", st.voz);
 if(app) leerMotor();
 // Borrar marcas dobles que hayan quedado (subida y bajada del mismo punto casi al mismo tiempo)
-if(st.cfg && limpiarMarcasDobles() && st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
+if(st.cfg && limpiarMarcasDobles() && st.nativo){ actualizarMotor(); }
 if(st.cfg){ $("tabs").hidden=false; $("pllSel").value = st.cfg.planilla; irA("Ruta"); if(leer("r29-manejo")) ponerManejo(true); }
 else mostrarSetup();
 setInterval(()=>{
