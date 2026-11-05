@@ -346,8 +346,12 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
     </section>
 
     <!-- Aviso: el celular puede dormir la app con la pantalla apagada -->
+    <section class="aviso-bateria" id="avisoUbicacion" hidden>
+      <div><b>⚠️ Falta un permiso de ubicación</b><span>Para que el GPS no se corte con la pantalla apagada, escoge <b>“Permitir todo el tiempo”</b>.</span></div>
+      <button class="primary" id="btnArreglarUbicacion">Arreglar</button>
+    </section>
     <section class="aviso-bateria" id="avisoBateria" hidden>
-      <div><b>⚠️ Tu celular puede dormir la app</b><span>Con la pantalla apagada podría dejar de hablar y de marcar.</span></div>
+      <div><b>⚠️ Tu celular puede dormir la app</b><span>Con la pantalla apagada podría dejar de hablar y de marcar. Escoge <b>“Sin restricciones”</b>.</span></div>
       <button class="primary" id="btnArreglarBateria">Arreglar</button>
     </section>
 
@@ -577,7 +581,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 14; // versión más nueva de la app de Android
+const ULTIMA_APK = 15; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -1979,7 +1983,11 @@ if(app){
   $("btnBattery").onclick = ()=> app.pedirBateria();
   $("btnArreglarBateria").onclick = ()=> app.pedirBateria();
   // Revisar cada vez que vuelves a la app (por si ya lo arreglaste)
-  const revisarBateria = ()=>{ try{ $("avisoBateria").hidden = !app.bateriaLibre || app.bateriaLibre(); }catch(e){} };
+  const revisarBateria = ()=>{
+    try{ $("avisoBateria").hidden = !app.bateriaLibre || app.bateriaLibre(); }catch(e){}
+    try{ $("avisoUbicacion").hidden = !app.ubicacionSiempre || app.ubicacionSiempre(); }catch(e){}
+  };
+  $("btnArreglarUbicacion").onclick = ()=> app.pedirUbicacionSiempre();
   revisarBateria();
   document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") revisarBateria(); });
 } else {

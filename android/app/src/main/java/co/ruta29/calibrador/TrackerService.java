@@ -70,6 +70,7 @@ public class TrackerService extends Service implements LocationListener {
     private long vozCada = 60000;      // cada cuánto habla (lo escoges en la app: 1, 2 o 3 min)
     private long ultimaLectura = 0;    // hora de la última posición del GPS (de cualquier fuente)
     private long ultimaBuena = 0;      // hora de la última posición precisa (60 m o menos)
+    private long ultimaReconexion = 0; // la última vez que reconectamos el GPS
     private boolean avisoSinGps = false;
 
     // Recorrido del día (por dónde ha pasado), para dibujarlo en el mapa
@@ -161,28 +162,34 @@ public class TrackerService extends Service implements LocationListener {
                 }
             });
         }
-        if (lm == null) {
-            lm = (LocationManager) getSystemService(LOCATION_SERVICE);
-            try {
-                // GPS COMBINADO (GPS + Wi-Fi + antenas): no se pierde bajo puentes, techos o entre edificios
-                if (Build.VERSION.SDK_INT >= 31 && lm.hasProvider(LocationManager.FUSED_PROVIDER)) {
-                    android.location.LocationRequest req = new android.location.LocationRequest.Builder(1000)
-                            .setQuality(android.location.LocationRequest.QUALITY_HIGH_ACCURACY)
-                            .setMinUpdateIntervalMillis(500).build();
-                    lm.requestLocationUpdates(LocationManager.FUSED_PROVIDER, req, getMainExecutor(), this);
-                }
-                // GPS puro, cada segundo (respaldo)
-                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0, this, Looper.getMainLooper());
-                // Antenas/Wi-Fi: solo para no quedar "sin señal" bajo techo (no se usa para marcar)
-                if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER))
-                    lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000, 0, this, Looper.getMainLooper());
-            } catch (Exception e) {
-                synchronized (candado) { gps = "err"; gpsTxt = "No se pudo usar el GPS"; }
-            }
-        }
+        if (lm == null) conectarGps();
         porUbicar = true;
         h.removeCallbacks(tic);
         h.post(tic);
+    }
+
+    // Pedir la ubicación al celular (se llama al arrancar y cuando hay que reconectar)
+    @SuppressLint("MissingPermission")
+    private void conectarGps() {
+        if (lm != null) { try { lm.removeUpdates(this); } catch (Exception ignorado) { } }
+        lm = (LocationManager) getSystemService(LOCATION_SERVICE);
+        try {
+            // GPS COMBINADO (GPS + Wi-Fi + antenas): no se pierde bajo puentes, techos o entre edificios
+            if (Build.VERSION.SDK_INT >= 31 && lm.hasProvider(LocationManager.FUSED_PROVIDER)) {
+                android.location.LocationRequest req = new android.location.LocationRequest.Builder(1000)
+                        .setQuality(android.location.LocationRequest.QUALITY_HIGH_ACCURACY)
+                        .setMinUpdateIntervalMillis(500).build();
+                lm.requestLocationUpdates(LocationManager.FUSED_PROVIDER, req, getMainExecutor(), this);
+            }
+            // GPS puro, cada segundo (respaldo)
+            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0, this, Looper.getMainLooper());
+            // Antenas/Wi-Fi: solo para no quedar "sin señal" bajo techo (no se usa para marcar)
+            if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER))
+                lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000, 0, this, Looper.getMainLooper());
+        } catch (Exception e) {
+            synchronized (candado) { gps = "err"; gpsTxt = "No se pudo usar el GPS"; }
+        }
+        ultimaReconexion = System.currentTimeMillis();
     }
 
     private void detener() {
@@ -278,6 +285,7 @@ public class TrackerService extends Service implements LocationListener {
             String hoy = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
             if (fecha != null && !fecha.isEmpty() && !fecha.equals(hoy)) { detener(); return; }
             long sinGps = ultimaLectura > 0 ? System.currentTimeMillis() - ultimaLectura : 0;
+            if (sinGps > 20000 && System.currentTimeMillis() - ultimaReconexion > 20000) conectarGps(); // el GPS se durmió: despertarlo
             if (sinGps > 45000) {
                 synchronized (candado) { gps = "err"; gpsTxt = "Sin señal de GPS hace " + (sinGps / 1000) + " s"; }
                 if (!avisoSinGps) { avisoSinGps = true; hablar("Se perdió la señal del GPS.", true); }

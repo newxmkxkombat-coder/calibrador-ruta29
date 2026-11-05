@@ -161,6 +161,19 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void abrirEnlace(String url) {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
         }
+        // ¿La ubicación está en "Permitir todo el tiempo"?
+        @JavascriptInterface public boolean ubicacionSiempre() {
+            if (Build.VERSION.SDK_INT < 29) return true;
+            return checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED;
+        }
+        // Pedirla: en Android 11+ abre la pantalla de permisos donde se escoge "Permitir todo el tiempo"
+        @JavascriptInterface public void pedirUbicacionSiempre() {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT < 29) return;
+                if (!tieneGps()) { pedirPermisos(true); return; }
+                requestPermissions(new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, PEDIR_PERMISOS + 1);
+            });
+        }
         // ¿El celular deja trabajar la app sin restricciones de batería?
         @JavascriptInterface public boolean bateriaLibre() {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
