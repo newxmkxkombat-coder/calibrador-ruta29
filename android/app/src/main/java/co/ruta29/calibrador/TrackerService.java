@@ -408,7 +408,9 @@ public class TrackerService extends Service implements LocationListener {
         }
 
         String signo = delta >= 0 ? "+" : "−";
-        notificar(signo + String.format(Locale.US, "%.1f", Math.abs(delta)) + " min · " + nombre + " " + hora,
+        // Puntico de color al inicio: verde = bien, amarillo = justo, rojo = atrasado
+        String punto = cls.equals("ok") ? "🟢 " : cls.equals("warn") ? "🟡 " : "🔴 ";
+        notificar(punto + signo + String.format(Locale.US, "%.1f", Math.abs(delta)) + " min · " + nombre + " " + hora,
                 msg + " Faltan " + (dist >= 1000 ? String.format(Locale.US, "%.1f km", dist / 1000) : Math.round(dist) + " m"));
 
         String estadoVoz = cls + (riesgo ? "-riesgo" : "");
@@ -481,7 +483,7 @@ public class TrackerService extends Service implements LocationListener {
                 .setVisibility(Notification.VISIBILITY_PUBLIC)   // mostrar todo en la pantalla de bloqueo
                 .setCategory(Notification.CATEGORY_NAVIGATION)
                 .setShowWhen(false)
-                .setColor(0xFFE3242B).setColorized(true)  // roja, para que resalte
+                .setColor(0xFF2F7FC4)   // solo un toque de azul en el ícono y los botones; el fondo es el normal del celular
                 .addAction(new Notification.Action.Builder(null, "✓ Ya marqué", pm).build())
                 .addAction(new Notification.Action.Builder(null, "↩ Devolver", pa).build())
                 .addAction(new Notification.Action.Builder(null, "Detener", pp).build());
