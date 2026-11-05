@@ -1,0 +1,17 @@
+{
+  "name": "Calibrador Ruta 29",
+  "short_name": "Ruta 29",
+  "description": "Tiempos de los puntos de control de la Ruta 29 con GPS y voz",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#111413",
+  "theme_color": "#ffbf1f",
+  "lang": "es-CO",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
