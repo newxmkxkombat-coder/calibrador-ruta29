@@ -128,6 +128,13 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void detener() { enviarAlMotor(TrackerService.DETENER); }
         @JavascriptInterface public boolean activo() { return TrackerService.activo; }
         @JavascriptInterface public String estado() { return TrackerService.estadoJson(); }
+        @JavascriptInterface public String traza(int desde) { return TrackerService.trazaJson(desde); }
+        @JavascriptInterface public void compartir(String texto) {
+            // Abre el menú de compartir de Android (WhatsApp, etc.)
+            Intent i = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, texto);
+            Intent w = new Intent(i).setPackage("com.whatsapp");
+            try { startActivity(w); } catch (Exception e) { startActivity(Intent.createChooser(i, "Compartir resumen")); }
+        }
         @JavascriptInterface public void marcar() { enviarAlMotor(TrackerService.MARCAR); }
         @JavascriptInterface public void anterior() { enviarAlMotor(TrackerService.ANTERIOR); }
         @JavascriptInterface public void voz(boolean on) {

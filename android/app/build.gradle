@@ -15,8 +15,8 @@ android {
         applicationId "co.ruta29.calibrador"
         minSdk 24
         targetSdk 35
-        versionCode 1          // súbelo en 1 cada vez que cambie el motor
-        versionName "1.0"
+        versionCode 2          // súbelo en 1 cada vez que cambie el motor
+        versionName "2.0"
     }
 
     signingConfigs {

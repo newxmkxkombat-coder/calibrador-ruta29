@@ -67,6 +67,12 @@ public class TrackerService extends Service implements LocationListener {
     private boolean avisoUnMinuto = false, avisoSalga = false;
     private double cercaD = -1; private long cercaT = 0;
 
+    // Recorrido del día (por dónde ha pasado), para dibujarlo en el mapa
+    private static final java.util.ArrayList<double[]> traza = new java.util.ArrayList<>();
+    private int trazaSinGuardar = 0;
+    // Ruta guardada: puntos en metros (x, y) y metros acumulados
+    private double[] rx, ry, rcum;
+
     @Override public IBinder onBind(Intent i) { return null; }
 
     @Override
@@ -111,6 +117,8 @@ public class TrackerService extends Service implements LocationListener {
                 marcas = new JSONObject(marcasTxt == null ? "{}" : marcasTxt);
                 idx = primerPendiente();
             }
+            prepararRuta(o.optJSONArray("ruta"));
+            cargarTraza();
         } catch (Exception e) {
             stopSelf();
             return;
@@ -161,6 +169,7 @@ public class TrackerService extends Service implements LocationListener {
 
     private void detener() {
         activo = false;
+        guardarTraza();
         h.removeCallbacks(tic);
         if (lm != null) { lm.removeUpdates(this); lm = null; }
         if (tts != null) { tts.stop(); tts.shutdown(); tts = null; ttsListo = false; }
@@ -182,6 +191,11 @@ public class TrackerService extends Service implements LocationListener {
             precision = (double) l.getAccuracy();
             gps = "live";
             gpsTxt = "GPS activo · precisión " + Math.round(l.getAccuracy()) + " m · funciona con pantalla apagada";
+            double[] u = traza.isEmpty() ? null : traza.get(traza.size() - 1);
+            if (l.getAccuracy() < 50 && (u == null || distancia(u[0], u[1], l.getLatitude(), l.getLongitude()) >= 15)) {
+                traza.add(new double[]{l.getLatitude(), l.getLongitude(), System.currentTimeMillis()});
+                if (++trazaSinGuardar >= 10) { guardarTraza(); trazaSinGuardar = 0; }
+            }
         }
         revisarLlegada();
         actualizar(false);
@@ -217,18 +231,29 @@ public class TrackerService extends Service implements LocationListener {
         Double la, lo; int i;
         synchronized (candado) { la = lat; lo = lon; i = idx; }
         if (la == null || puntos == null || i >= puntos.length()) return;
-        JSONObject p = punto(i);
-        if (marcas.has(String.valueOf(p.optInt("i")))) return;
-        double d = distancia(la, lo, p.optDouble("lat"), p.optDouble("lon"));
-        if (p.optBoolean("salida")) {
-            if (d > radioSalida && d < 1500) marcar(System.currentTimeMillis()); // ya arrancó
-        } else if (d <= radioMarca) {
-            marcar(System.currentTimeMillis());
-        } else if (d <= 200) {
-            // Plan B: pasó cerca pero el GPS no lo vio encima; si se aleja, ya pasó
-            if (cercaD < 0 || d < cercaD) { cercaD = d; cercaT = System.currentTimeMillis(); }
-            else if (d > cercaD + 40) marcar(cercaT);
+        long ahora = System.currentTimeMillis();
+        // Revisa el punto que toca y los 3 siguientes: el primero que encuentre cerca, ese marca
+        for (int j = i; j <= Math.min(i + 3, puntos.length() - 1); j++) {
+            JSONObject p = punto(j);
+            if (marcas.has(String.valueOf(p.optInt("i")))) continue;
+            if (j > i && p.optLong("t") - ahora > 45 * 60000L) break; // no saltar a puntos de mucho más tarde
+            double d = distancia(la, lo, p.optDouble("lat"), p.optDouble("lon"));
+            if (p.optBoolean("salida")) {
+                // arrancó: ya se alejó del punto de salida (y ya casi es la hora)
+                if (j == i && d > radioSalida && ahora > p.optLong("t") - 15 * 60000L) { marcarEn(j, ahora); return; }
+                continue;
+            }
+            if (d <= radioMarca) { marcarEn(j, ahora); return; }
+            if (j == i && d <= 300) { // plan B: pasó cerca y se está alejando
+                if (cercaD < 0 || d < cercaD) { cercaD = d; cercaT = ahora; }
+                else if (d > cercaD + 60) { marcarEn(j, cercaT); return; }
+            }
         }
+    }
+
+    private void marcarEn(int j, long t) {
+        synchronized (candado) { idx = j; }
+        marcar(t);
     }
 
     private void marcar(long t) {
@@ -294,9 +319,20 @@ public class TrackerService extends Service implements LocationListener {
         }
         double dist = distancia(la, lo, p.optDouble("lat"), p.optDouble("lon")) * factorCalles;
         double tramo = Math.max(1, distancia(a.optDouble("lat"), a.optDouble("lon"), p.optDouble("lat"), p.optDouble("lon")) * factorCalles);
+        double real = -1;
+        // Si hay ruta guardada, medir por las calles de esa ruta
+        if (rcum != null && p.has("s") && p.has("sAnt")) {
+            double sP = p.optDouble("s"), sA = p.optDouble("sAnt");
+            double[] q = proyectar(la, lo, sA - 80, sP + 80);
+            if (q != null && q[0] < 250 && sP > sA) {
+                dist = Math.max(0, sP - q[1]);
+                tramo = sP - sA;
+                real = Math.min(1, Math.max(0, (q[1] - sA) / tramo));
+            }
+        }
         double minTramo = Math.max(1, (p.optLong("t") - a.optLong("t")) / 60000.0);
         double debido = Math.min(1, Math.max(0, (ahora - a.optLong("t")) / (minTramo * 60000)));
-        double real = Math.min(1, Math.max(0, 1 - dist / tramo));
+        if (real < 0) real = Math.min(1, Math.max(0, 1 - dist / tramo));
         double delta = (real - debido) * minTramo;
         if (minRest < 0) delta = Math.min(delta, minRest);
 
@@ -340,6 +376,7 @@ public class TrackerService extends Service implements LocationListener {
             NotificationChannel c = new NotificationChannel(CANAL, "Calibrador en ruta", NotificationManager.IMPORTANCE_LOW);
             c.setDescription("Muestra cómo vas de tiempo mientras el GPS está activo");
             c.setShowBadge(false);
+            c.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC); // se ve con el celular bloqueado
             getSystemService(NotificationManager.class).createNotificationChannel(c);
         }
     }
@@ -356,8 +393,9 @@ public class TrackerService extends Service implements LocationListener {
     private Notification notificacion(String titulo, String texto) {
         Intent abrir = new Intent(this, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         PendingIntent pi = PendingIntent.getActivity(this, 0, abrir, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        Intent parar = new Intent(this, TrackerService.class).setAction(DETENER);
-        PendingIntent pp = PendingIntent.getService(this, 1, parar, PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pp = PendingIntent.getService(this, 1, new Intent(this, TrackerService.class).setAction(DETENER), PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pm = PendingIntent.getService(this, 2, new Intent(this, TrackerService.class).setAction(MARCAR), PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pa = PendingIntent.getService(this, 3, new Intent(this, TrackerService.class).setAction(ANTERIOR), PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CANAL) : new Notification.Builder(this);
         b.setSmallIcon(R.drawable.ic_bus)
                 .setContentTitle(titulo)
@@ -366,7 +404,11 @@ public class TrackerService extends Service implements LocationListener {
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .addAction(new Notification.Action.Builder(null, "Detener GPS", pp).build());
+                .setVisibility(Notification.VISIBILITY_PUBLIC)   // mostrar todo en la pantalla de bloqueo
+                .setCategory(Notification.CATEGORY_NAVIGATION)
+                .addAction(new Notification.Action.Builder(null, "✓ Ya marqué", pm).build())
+                .addAction(new Notification.Action.Builder(null, "↩ Devolver", pa).build())
+                .addAction(new Notification.Action.Builder(null, "Detener", pp).build());
         if (Build.VERSION.SDK_INT >= 31) b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
         return b.build();
     }
@@ -386,12 +428,79 @@ public class TrackerService extends Service implements LocationListener {
                 while (it.hasNext()) { String k = it.next(); m.put(k, marcas.get(k)); }
                 o.put("marcas", m);
                 o.put("gps", gps);
+                o.put("nTraza", traza.size());
                 o.put("gpsTxt", gpsTxt);
             }
             return o.toString();
         } catch (Exception e) {
             return "{\"activo\":false}";
         }
+    }
+
+    // ================= RECORRIDO DEL DÍA =================
+    static String trazaJson(int desde) {
+        StringBuilder b = new StringBuilder("[");
+        synchronized (candado) {
+            for (int i = Math.max(0, desde); i < traza.size(); i++) {
+                double[] q = traza.get(i);
+                if (b.length() > 1) b.append(',');
+                b.append('[').append(String.format(Locale.US, "%.6f,%.6f,%d", q[0], q[1], (long) q[2])).append(']');
+            }
+        }
+        return b.append(']').toString();
+    }
+
+    private void guardarTraza() {
+        String hoy = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putString("traza", trazaJson(0)).putString("trazaFecha", hoy).apply();
+    }
+
+    private void cargarTraza() {
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        String hoy = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+        synchronized (candado) {
+            traza.clear();
+            if (!hoy.equals(p.getString("trazaFecha", ""))) return; // día nuevo: recorrido limpio
+            try {
+                JSONArray a = new JSONArray(p.getString("traza", "[]"));
+                for (int i = 0; i < a.length(); i++) {
+                    JSONArray q = a.getJSONArray(i);
+                    traza.add(new double[]{q.getDouble(0), q.getDouble(1), q.getDouble(2)});
+                }
+            } catch (Exception ignorado) { }
+        }
+    }
+
+    // ================= RUTA GUARDADA =================
+    // Convierte grados a metros en un plano pequeño (sirve para una ciudad)
+    private static double mx(double lon) { return (lon + 75.28) * Math.cos(Math.toRadians(2.94)) * 111320; }
+    private static double my(double lat) { return (lat - 2.94) * 110574; }
+
+    private void prepararRuta(JSONArray r) {
+        rx = ry = rcum = null;
+        if (r == null || r.length() < 20) return;
+        int n = r.length();
+        rx = new double[n]; ry = new double[n]; rcum = new double[n];
+        for (int i = 0; i < n; i++) {
+            JSONArray q = r.optJSONArray(i);
+            rx[i] = mx(q.optDouble(1)); ry[i] = my(q.optDouble(0));
+            rcum[i] = i == 0 ? 0 : rcum[i - 1] + Math.hypot(rx[i] - rx[i - 1], ry[i] - ry[i - 1]);
+        }
+    }
+
+    // ¿A cuántos metros de la ruta estoy y en qué metro de la ruta voy? Devuelve {distancia, metro}
+    private double[] proyectar(double lat, double lon, double sMin, double sMax) {
+        double px = mx(lon), py = my(lat);
+        double[] mejor = null;
+        for (int i = 1; i < rx.length; i++) {
+            if (rcum[i] < sMin || rcum[i - 1] > sMax) continue;
+            double dx = rx[i] - rx[i - 1], dy = ry[i] - ry[i - 1], L2 = dx * dx + dy * dy;
+            double f = L2 > 0 ? Math.max(0, Math.min(1, ((px - rx[i - 1]) * dx + (py - ry[i - 1]) * dy) / L2)) : 0;
+            double d = Math.hypot(px - (rx[i - 1] + f * dx), py - (ry[i - 1] + f * dy));
+            if (mejor == null || d < mejor[0]) mejor = new double[]{d, rcum[i - 1] + f * Math.sqrt(L2)};
+        }
+        return mejor;
     }
 
     // Fórmula de Haversine: metros entre dos puntos GPS

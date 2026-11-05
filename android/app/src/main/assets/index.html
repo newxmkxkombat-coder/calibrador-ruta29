@@ -9,6 +9,8 @@
 <meta name="theme-color" content="#ffbf1f">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
 <style>
 /* Layout: una columna tipo tablero de bus. Pestañas abajo: Ruta (en vivo), Planillas (compañeros), Día (resumen). */
@@ -147,9 +149,19 @@ tr.cur td{background:color-mix(in srgb,var(--accent) 12%,var(--panel))}
 .preview{background:var(--bg);border-radius:10px;padding:12px 14px;font-size:14px;color:var(--muted);line-height:1.5}
 .preview b{color:var(--ink);font-family:var(--f-mono)}
 
+/* Mapa */
+#mapa{height:60vh;min-height:300px;width:100%;background:#dde3d6}
+.map-bar{display:flex;gap:8px;align-items:center;padding:10px 12px;flex-wrap:wrap;border-top:1px solid var(--line)}
+.map-bar span{color:var(--muted);font-size:13px;flex:1 1 140px}
+.leyenda{display:flex;flex-wrap:wrap;gap:6px 14px;padding:10px 16px 14px;font-size:13px;color:var(--muted)}
+.leyenda i{display:inline-block;width:18px;height:4px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.leaflet-tooltip.pc{background:#15181a;color:#fff;border:0;font-family:var(--f-display);font-weight:700;font-size:13px;padding:2px 6px;box-shadow:none}
+.leaflet-tooltip.pc:before{display:none}
+.ruta-btns{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 14px}
+.ruta-btns select{flex:1 1 150px}
 /* Pestañas abajo */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--panel);border-top:1px solid var(--line);
-  display:grid;grid-template-columns:repeat(3,1fr);
+  display:grid;grid-template-columns:repeat(4,1fr);
   padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
 nav.tabs button{border:0;border-radius:0;background:none;padding:12px 4px 14px;font-size:14px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px}
 nav.tabs button span{font-size:20px;line-height:1}
@@ -242,6 +254,7 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
       <button class="grow" id="btnMark">Ya marqué este punto</button>
     </div>
     <div class="gps" id="gpsState"><i></i><span>GPS apagado</span></div>
+    <button id="btnFijar" hidden>📍 Corregir ubicación de este punto aquí</button>
     <button class="link" id="btnBattery" hidden style="align-self:flex-start">Evitar que el celular cierre la app (batería)</button>
 
     <section class="card">
@@ -270,19 +283,48 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
     <section class="card">
       <h2>Resumen del día <span id="dayDate"></span></h2>
       <div id="daySummary"></div>
+      <div style="padding:0 16px 14px"><button class="primary" id="btnShare">📤 Compartir por WhatsApp</button></div>
     </section>
     <section class="card">
       <h2>Arranque de hoy</h2>
       <div class="empty" id="daySetupTxt"></div>
       <div style="padding:0 16px 14px"><button id="btnChangeSetup">Cambiar hora o punto de arranque</button></div>
     </section>
-    <p class="note">En el resumen, <b>+</b> es adelanto y <b>−</b> es retraso, en minutos. Meta: pasar con 2 a 3 minutos de adelanto. El registro se guarda en este celular y empieza de cero cada día.</p>
+    <p class="note" id="notaDia">En el resumen, <b>+</b> es adelanto y <b>−</b> es retraso, en minutos. Meta: pasar con 2 a 3 minutos de adelanto. El registro se guarda en este celular y empieza de cero cada día.</p>
+  </div>
+
+  <!-- ===== PESTAÑA MAPA ===== -->
+  <div id="tabMapa" class="wrap" style="gap:14px" hidden>
+    <section class="card">
+      <div id="mapa" role="img" aria-label="Mapa de la ruta con tu posición"></div>
+      <div class="map-bar">
+        <button id="btnSeguir" class="on">📍 Seguirme</button>
+        <button id="btnVerTodo">Ver toda la ruta</button>
+        <span id="mapInfo">Sin GPS todavía</span>
+      </div>
+      <div class="leyenda">
+        <span><i style="background:#1e6fd9"></i>Mi ruta guardada</span>
+        <span><i style="background:#ff8a00"></i>Por donde he pasado hoy</span>
+        <span><i style="background:#15181a;height:10px;width:10px;border-radius:50%"></i>Punto de control</span>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Mi ruta <span id="rutaEstado"></span></h2>
+      <div class="empty" id="rutaTxt"></div>
+      <div class="ruta-btns">
+        <select id="selVueltaRuta" aria-label="Vuelta para guardar como ruta"></select>
+        <button class="primary" id="btnGuardarRuta">Usar como mi ruta</button>
+      </div>
+      <div class="ruta-btns"><button class="link" id="btnBorrarRuta" hidden>Borrar mi ruta guardada</button></div>
+    </section>
   </div>
 </div>
 
+<!-- (la pestaña Mapa va fuera del contenedor angosto para usar todo el ancho) -->
 <nav class="tabs" id="tabs" hidden>
   <button data-tab="Ruta" aria-current="page"><span>🚌</span>Ruta</button>
   <button data-tab="Planillas"><span>📋</span>Planillas</button>
+  <button data-tab="Mapa"><span>🗺️</span>Mapa</button>
   <button data-tab="Dia"><span>📅</span>Mi día</button>
 </nav>
 
@@ -318,8 +360,9 @@ const IDX_PALMAS = 5;
 const MIN_ENTRE_CARROS = 5;
 const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
-const RADIO_MARCA = 70, RADIO_SALIDA = 120, FACTOR_CALLES = 1.3;
-const ULTIMA_APK = 1; // versión más nueva de la app de Android
+const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
+const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
+const ULTIMA_APK = 2; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -342,6 +385,65 @@ function textoMin(m){
 }
 function leer(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } }
 function guardar(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+/* =====================================================================
+   2b. LA RUTA GRABADA (por dónde vas de verdad)
+   La ruta es una lista de puntos GPS de una vuelta completa:
+   Caña Brava → Polideportivo → ... → Palmas → ... → Caña Brava.
+   Con ella medimos la distancia POR LAS CALLES y no en línea recta.
+   ===================================================================== */
+const RUTA_BASE = null; // aquí puedo dejar fija la ruta oficial cuando me la mandes
+function aXY(lat, lon){ // convierte grados a metros (plano pequeño, sirve para una ciudad)
+  return [(lon - (-75.28))*Math.cos(2.94*Math.PI/180)*111320, (lat - 2.94)*110574];
+}
+function prepararRuta(pts){
+  if(!pts || pts.length < 20) return null;
+  const xy = pts.map(p=>aXY(p[0],p[1])), cum=[0];
+  for(let i=1;i<xy.length;i++) cum.push(cum[i-1] + Math.hypot(xy[i][0]-xy[i-1][0], xy[i][1]-xy[i-1][1]));
+  const R = {pts, xy, cum, total:cum[cum.length-1]};
+  R.S = posicionesDeControl(R);
+  return R;
+}
+// Proyectar una posición sobre la ruta: ¿en qué metro de la ruta estoy y a cuántos metros de ella?
+function proyectar(R, lat, lon, sMin=-Infinity, sMax=Infinity){
+  const [px,py] = aXY(lat,lon); let mejor = null;
+  for(let i=1;i<R.xy.length;i++){
+    if(R.cum[i] < sMin || R.cum[i-1] > sMax) continue;
+    const [ax,ay]=R.xy[i-1], [bx,by]=R.xy[i], dx=bx-ax, dy=by-ay, L2=dx*dx+dy*dy;
+    const f = L2 ? Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/L2)) : 0;
+    const d = Math.hypot(px-(ax+f*dx), py-(ay+f*dy));
+    if(!mejor || d < mejor.d) mejor = {d, s:R.cum[i-1]+f*Math.sqrt(L2)};
+  }
+  return mejor;
+}
+// En qué metro de la ruta queda cada punto de control (en el orden de la vuelta)
+function posicionesDeControl(R){
+  const S = []; let desde = 0;
+  CICLO.forEach((c,k)=>{
+    if(k===0){ S.push(0); return; }
+    if(k===CICLO.length-1){ S.push(R.total); return; }
+    const P = PUNTOS[c.id]; let mejor=null;
+    for(let i=1;i<R.xy.length;i++){
+      if(R.cum[i] < desde) continue;
+      const q = proyectar({xy:[R.xy[i-1],R.xy[i]], cum:[R.cum[i-1],R.cum[i]]}, P.lat, P.lon);
+      if(!mejor || q.d < mejor.d) mejor = q;
+      else if(mejor.d < 150 && q.d > mejor.d + 300) break; // ya pasó el punto
+    }
+    const s = mejor ? mejor.s : desde;
+    S.push(s); desde = s;
+  });
+  return S;
+}
+// Puntos que tú corregiste con el GPS (se guardan en el celular)
+function aplicarCorrecciones(){
+  const c = leer("r29-puntos") || {};
+  Object.keys(c).forEach(id=>{ if(PUNTOS[id]){ PUNTOS[id].lat = c[id][0]; PUNTOS[id].lon = c[id][1]; PUNTOS[id].corregido = true; } });
+}
+function cargarRuta(){
+  const g = leer("r29-ruta");
+  st.ruta = prepararRuta(g && g.pts ? g.pts : RUTA_BASE);
+  st.rutaFecha = g && g.fecha;
+}
 
 /* =====================================================================
    3. ARMAR EL HORARIO DEL DÍA
@@ -395,7 +497,19 @@ const st = {
   gpsWatch:null, sim:null, simT:0, simMarcas:null,
   voz:false, ultimaVoz:0, ultimoEstado:"", cerca:null,
   nativo:false, // true cuando el motor de Android está llevando el GPS
+  ruta:null, rutaFecha:null,   // la ruta grabada que usas como referencia
+  traza:[], simTraza:[],       // por dónde has pasado hoy: [lat, lon, hora]
 };
+/* ---------- Recorrido del día (para dibujarlo en el mapa) ---------- */
+const trazaActual = () => st.sim ? st.simTraza : st.traza;
+function cargarTraza(){ const g = leer("r29-traza"); st.traza = g && g.fecha===hoy() ? g.pts : []; }
+let trazaSinGuardar = 0;
+function agregarTraza(lat, lon, t){
+  const T = trazaActual(), u = T[T.length-1];
+  if(u && distancia({lat:u[0],lon:u[1]},{lat,lon}) < 15) return; // solo cada 15 metros
+  T.push([+lat.toFixed(6), +lon.toFixed(6), t]);
+  if(!st.sim && ++trazaSinGuardar >= 10){ guardar("r29-traza", {fecha:hoy(), pts:st.traza}); trazaSinGuardar = 0; }
+}
 const ahora = () => st.sim ? st.simT : Date.now();
 const marcasActuales = () => st.sim ? st.simMarcas : st.marcas;
 function guardarMarcas(){ if(!st.sim) guardar("r29-marcas", {fecha:hoy(), marcas:st.marcas}); }
@@ -420,16 +534,26 @@ function calcular(){
   const t = ahora(), P = st.plan[st.idx];
   const r = {meta:P.t, minRestantes:(P.t - t)/60000};
   if(!st.pos) return r;
-  const dist = distancia(st.pos, P)*FACTOR_CALLES;
+  const A = st.plan[st.idx-1];
+  // Distancia: por la ruta grabada si la hay (y si no te saliste de ella), si no en línea recta × 1,3
+  let dist = distancia(st.pos, P)*FACTOR_CALLES, tramo = A ? Math.max(1, distancia(A,P)*FACTOR_CALLES) : 1, real = null;
+  r.porRuta = false;
+  if(st.ruta && A && !P.salida && A.vuelta===P.vuelta){
+    const sA = st.ruta.S[A.k], sP = st.ruta.S[P.k];
+    const q = proyectar(st.ruta, st.pos.lat, st.pos.lon, sA-80, sP+80);
+    if(q && q.d < 250 && sP > sA){
+      dist = Math.max(0, sP - q.s); tramo = sP - sA;
+      real = Math.min(1, Math.max(0, (q.s - sA)/tramo));
+      r.porRuta = true;
+    }
+  }
   r.dist = dist;
   const minParaMeta = r.minRestantes - ADELANTO_META;
   r.velNecesaria = minParaMeta>0 ? (dist/1000)/(minParaMeta/60) : Infinity;
-  const A = st.plan[st.idx-1];
   if(!A || P.salida) return r;
-  const tramo = Math.max(1, distancia(A,P)*FACTOR_CALLES);
   const minTramo = Math.max(1,(P.t - A.t)/60000);
   const debido = Math.min(1, Math.max(0,(t - A.t)/(minTramo*60000)));
-  const real = Math.min(1, Math.max(0, 1 - dist/tramo));
+  if(real==null) real = Math.min(1, Math.max(0, 1 - dist/tramo));
   r.delta = (real - debido)*minTramo;
   if(r.minRestantes < 0) r.delta = Math.min(r.delta, r.minRestantes);
   return r;
@@ -440,18 +564,28 @@ function calcular(){
    ===================================================================== */
 function revisarLlegada(){
   if(!st.pos || st.idx>=st.plan.length) return;
-  const P = st.plan[st.idx], d = distancia(st.pos, P);
-  if(P.salida){
-    if(d > RADIO_SALIDA && d < 1500) marcar();       // arrancó: se alejó del punto
-  } else if(d <= RADIO_MARCA){
-    marcar();
-  } else if(d <= 200){                                // plan B: pasó cerca y se está alejando
-    if(st.cerca==null || d < st.cerca.d) st.cerca = {d, t:ahora()};
-    else if(d > st.cerca.d + 40) marcar(st.cerca.t);
+  const t = ahora();
+  // Revisa el punto que toca y los siguientes: el primero que encuentre cerca, ese marca.
+  for(let j=st.idx; j<=Math.min(st.idx+MIRAR_ADELANTE, st.plan.length-1); j++){
+    const P = st.plan[j];
+    if(st.marcas && marcasActuales()[P.i]!=null) continue;
+    if(j>st.idx && P.t - t > 45*60000) break;         // no saltar a puntos de mucho más tarde
+    const d = distancia(st.pos, P);
+    if(P.salida){
+      // arrancó: ya se alejó del punto de salida (y ya casi es la hora)
+      if(j===st.idx && d > RADIO_SALIDA && t > P.t - 15*60000){ marcar(undefined, j); return; }
+      continue;
+    }
+    if(d <= RADIO_MARCA){ marcar(undefined, j); return; }
+    if(j===st.idx && d <= RADIO_CERCA){             // plan B: pasó cerca y se está alejando
+      if(st.cerca==null || d < st.cerca.d) st.cerca = {d, t};
+      else if(d > st.cerca.d + 60){ marcar(st.cerca.t, j); return; }
+    }
   }
 }
-function marcar(tReal){
+function marcar(tReal, j){
   if(st.nativo){ app.marcar(); return; }
+  if(typeof j==="number") st.idx = j;                 // si se saltó puntos, va directo al que detectó
   const P = st.plan[st.idx], t = typeof tReal==="number" ? tReal : ahora();
   st.cerca = null;
   marcasActuales()[P.i] = t; guardarMarcas();
@@ -493,10 +627,12 @@ function pintar(){
   $("nextName").textContent = P.salida ? `Salida ${P.nombre}` : P.nombre;
   $("nextTime").textContent = fmt(P.t);
   $("fLeft").textContent = r.minRestantes>=0 ? `${Math.floor(r.minRestantes)}:${String(Math.floor((r.minRestantes%1)*60)).padStart(2,"0")}` : "pasó";
-  $("fDist").textContent = r.dist!=null ? (r.dist>=1000 ? (r.dist/1000).toFixed(1)+" km" : Math.round(r.dist)+" m") : "—";
+  $("fDist").textContent = r.dist!=null ? (r.dist>=1000 ? (r.dist/1000).toFixed(1)+" km" : Math.round(r.dist)+" m") + (r.porRuta ? " por tu ruta" : "") : "—";
   $("fSpeed").textContent = st.vel!=null ? Math.round(st.vel*3.6)+" km/h" : "—";
   $("fNeed").textContent = r.velNecesaria==null ? "—" : isFinite(r.velNecesaria) ? Math.round(r.velNecesaria)+" km/h" : "¡ya!";
   pintarCompas(P);
+  $("btnFijar").hidden = !st.pos || !!st.sim;
+  if(!confirmarFijar) $("btnFijar").textContent = `📍 Estoy en ${P.nombre}: guardar ubicación aquí`;
 
   const box = $("status"), yaMarcado = marcas[P.i];
   if(yaMarcado!=null){
@@ -637,9 +773,10 @@ function iniciarGps(){
   estadoGps("","Buscando señal…");
   st.gpsWatch = navigator.geolocation.watchPosition(p=>{
     st.pos = {lat:p.coords.latitude, lon:p.coords.longitude};
+    agregarTraza(st.pos.lat, st.pos.lon, Date.now());
     if(p.coords.speed!=null) st.vel = p.coords.speed;
     estadoGps("live",`GPS activo · precisión ${Math.round(p.coords.accuracy)} m`);
-    revisarLlegada(); pintar();
+    revisarLlegada(); pintar(); pintarMapa();
   }, e=> estadoGps("err", e.code===1 ? "Permiso de ubicación negado: actívalo en los ajustes de Chrome" : "No hay señal de GPS"),
   {enableHighAccuracy:true, maximumAge:2000, timeout:15000});
   $("btnGps").textContent = "Detener GPS";
@@ -657,7 +794,13 @@ document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState=
 function planParaMotor(){
   return JSON.stringify({
     fecha: hoy(), adelantoMeta: ADELANTO_META, radioMarca: RADIO_MARCA, radioSalida: RADIO_SALIDA, factorCalles: FACTOR_CALLES,
-    puntos: st.plan.map(p=>({i:p.i, t:p.t, nombre:p.nombre, lat:p.lat, lon:p.lon, salida:p.salida, vuelta:p.vuelta})),
+    puntos: st.plan.map((p,j)=>{
+      const o = {i:p.i, t:p.t, nombre:p.nombre, lat:p.lat, lon:p.lon, salida:p.salida, vuelta:p.vuelta};
+      const A = st.plan[j-1];
+      if(st.ruta && A && !p.salida && A.vuelta===p.vuelta){ o.s = st.ruta.S[p.k]; o.sAnt = st.ruta.S[A.k]; }
+      return o;
+    }),
+    ruta: st.ruta ? st.ruta.pts.map(q=>[q[0],q[1]]) : null,
   });
 }
 function alternarNativo(){
@@ -676,6 +819,12 @@ function leerMotor(){
     st.vel = e.vel;
     if(e.marcas){ st.marcas = e.marcas; guardarMarcas(); }
     if(typeof e.idx==="number") st.idx = e.idx;
+    if(app.traza && typeof e.nTraza==="number"){
+      if(e.nTraza < st.trazaMotor) st.trazaMotor = 0;
+      if(e.nTraza > st.trazaMotor){
+        try{ const r = JSON.parse(app.traza(st.trazaMotor)); r.forEach(q=>agregarTraza(q[0],q[1],q[2])); st.trazaMotor = e.nTraza; }catch(err){}
+      }
+    }
     estadoGps(e.gps==="live"?"live":e.gps==="err"?"err":"", e.gpsTxt || "GPS del motor de Android");
   }
 }
@@ -688,7 +837,7 @@ function iniciarSim(){
   if(st.gpsWatch!=null){ navigator.geolocation.clearWatch(st.gpsWatch); st.gpsWatch=null; }
   if(st.nativo) app.detener();
   st.nativo = false;
-  st.simMarcas = {}; st.ultimoEstado = ""; st.cerca = null;
+  st.simMarcas = {}; st.simTraza = []; st.ultimoEstado = ""; st.cerca = null;
   const v0 = st.plan[st.idx].vuelta;
   const vuelta = st.plan.filter(p=>p.vuelta===v0);
   st.idx = vuelta[0].i;
@@ -702,9 +851,10 @@ function iniciarSim(){
     const f = Math.min(1, Math.max(0,(tEf-a.t)/(b.t-a.t)));
     const prev = st.pos;
     st.pos = {lat:a.lat+(b.lat-a.lat)*f, lon:a.lon+(b.lon-a.lon)*f};
+    agregarTraza(st.pos.lat, st.pos.lon, st.simT);
     st.vel = prev ? distancia(prev,st.pos)*FACTOR_CALLES/30 : 0;
     estadoGps("live","Modo prueba (reloj acelerado)");
-    revisarLlegada(); pintar(); pintarDia();
+    revisarLlegada(); pintar(); pintarDia(); pintarMapa();
     const ultima = vuelta[vuelta.length-1];
     if(st.simMarcas[ultima.i]!=null){
       clearInterval(st.sim); st.sim = "fin"; st.idx = ultima.i;
@@ -718,6 +868,135 @@ function pararSim(){
   $("btnSim").textContent="Modo prueba"; $("btnSim").classList.remove("on");
   estadoGps("","GPS apagado"); ubicarIdx(); pintar(); pintarDia();
 }
+
+/* =====================================================================
+   11b. EL MAPA
+   Usa Leaflet (una librería gratis de mapas) con los mapas de OpenStreetMap.
+   ===================================================================== */
+const M = {mapa:null, ruta:null, traza:null, yo:null, proximo:null, seguir:true};
+function abrirMapa(){
+  if(!window.L){ $("mapInfo").textContent = "No cargó el mapa. Revisa tu conexión a internet."; return; }
+  if(!M.mapa){
+    M.mapa = L.map("mapa", {zoomControl:true, attributionControl:true}).setView([2.943,-75.27], 14);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:"© OpenStreetMap"}).addTo(M.mapa);
+    // Puntos de control con su nombre
+    Object.values(PUNTOS).forEach(P=>{
+      L.circleMarker([P.lat,P.lon], {radius:7, color:"#ffffff", weight:2, fillColor:"#15181a", fillOpacity:1})
+        .bindTooltip(P.nombre, {permanent:true, direction:"top", offset:[0,-6], className:"pc"}).addTo(M.mapa);
+    });
+    M.ruta = L.polyline([], {color:"#1e6fd9", weight:6, opacity:.55}).addTo(M.mapa);
+    M.traza = L.polyline([], {color:"#ff8a00", weight:4, opacity:.95}).addTo(M.mapa);
+    M.proximo = L.circleMarker([0,0], {radius:13, color:"#ffbf1f", weight:4, fill:false}).addTo(M.mapa);
+    M.yo = L.circleMarker([0,0], {radius:9, color:"#ffffff", weight:3, fillColor:"#1f8a4c", fillOpacity:1});
+    M.mapa.on("dragstart", ()=>{ M.seguir = false; $("btnSeguir").classList.remove("on"); });
+    verTodo();
+  }
+  setTimeout(()=> M.mapa.invalidateSize(), 50); // el mapa necesita saber su tamaño al mostrarse
+  pintarMapa(); pintarPanelRuta();
+}
+function verTodo(){
+  if(!M.mapa) return;
+  const pts = Object.values(PUNTOS).map(P=>[P.lat,P.lon]);
+  if(st.ruta) st.ruta.pts.forEach(q=>pts.push([q[0],q[1]]));
+  M.mapa.fitBounds(L.latLngBounds(pts).pad(0.08));
+}
+let vueltasVistas = -1;
+function pintarMapa(){
+  if(!M.mapa || $("tabMapa").hidden) return;
+  const nv = vueltasCompletas().length;               // si terminó una vuelta, refrescar la lista
+  if(nv !== vueltasVistas){ vueltasVistas = nv; pintarPanelRuta(); }
+  M.ruta.setLatLngs(st.ruta ? st.ruta.pts.map(q=>[q[0],q[1]]) : []);
+  M.traza.setLatLngs(trazaActual().map(q=>[q[0],q[1]]));
+  if(st.cfg){ const P = st.plan[st.idx]; M.proximo.setLatLng([P.lat,P.lon]); }
+  if(st.pos){
+    M.yo.setLatLng([st.pos.lat, st.pos.lon]);
+    if(!M.mapa.hasLayer(M.yo)) M.yo.addTo(M.mapa);
+    if(M.seguir) M.mapa.setView([st.pos.lat, st.pos.lon], Math.max(M.mapa.getZoom(), 16), {animate:false});
+    const P = st.plan[st.idx];
+    $("mapInfo").textContent = `Vas hacia ${P.nombre} (${fmt(P.t)}) · ${trazaActual().length} puntos grabados hoy`;
+  } else {
+    if(M.mapa.hasLayer(M.yo)) M.mapa.removeLayer(M.yo);
+    $("mapInfo").textContent = "Enciende el GPS para verte en el mapa.";
+  }
+}
+$("btnSeguir").onclick = ()=>{ M.seguir = !M.seguir; $("btnSeguir").classList.toggle("on", M.seguir); pintarMapa(); };
+$("btnVerTodo").onclick = ()=>{ M.seguir = false; $("btnSeguir").classList.remove("on"); verTodo(); };
+
+/* ---------- Guardar una vuelta grabada como "mi ruta" ---------- */
+function vueltasCompletas(){
+  // Vueltas donde quedó marcada la salida de Caña Brava y la llegada a Caña Brava
+  const marcas = marcasActuales(), res = [];
+  [...new Set(st.plan.map(p=>p.vuelta))].forEach(v=>{
+    const pv = st.plan.filter(p=>p.vuelta===v);
+    const a = pv.find(p=>p.k===0), b = pv.find(p=>p.k===CICLO.length-1);
+    if(a && b && marcas[a.i]!=null && marcas[b.i]!=null){
+      const pts = trazaActual().filter(q=> q[2] >= marcas[a.i]-60000 && q[2] <= marcas[b.i]+60000);
+      if(pts.length >= 20) res.push({v, pts, desde:marcas[a.i], hasta:marcas[b.i]});
+    }
+  });
+  return res;
+}
+function pintarPanelRuta(){
+  if(!st.cfg) return;
+  if(st.ruta){
+    $("rutaEstado").textContent = `${(st.ruta.total/1000).toFixed(1)} km`;
+    $("rutaTxt").innerHTML = `Tienes una ruta guardada${st.rutaFecha ? " del "+st.rutaFecha : ""}. La app mide la distancia <b>por esa ruta</b>. Si cambian los desvíos, graba otra vuelta y guárdala encima.`;
+  } else {
+    $("rutaEstado").textContent = "sin guardar";
+    $("rutaTxt").innerHTML = "Todavía no tienes ruta guardada. Haz una vuelta completa con el GPS encendido (de Caña Brava a Caña Brava) y después escógela aquí. Desde ese momento la distancia se mide <b>por las calles que tú haces</b>.";
+  }
+  $("btnBorrarRuta").hidden = !st.ruta;
+  const vs = vueltasCompletas(), sel = $("selVueltaRuta");
+  sel.innerHTML = "";
+  vs.forEach(x=> sel.add(new Option(`Vuelta ${x.v} (${fmt(x.desde)} → ${fmt(x.hasta)})`, x.v)));
+  if(!vs.length) sel.add(new Option("Aún no hay vueltas completas hoy", ""));
+  sel.disabled = !vs.length; $("btnGuardarRuta").disabled = !vs.length;
+}
+$("btnGuardarRuta").onclick = ()=>{
+  const x = vueltasCompletas().find(z=> String(z.v)===$("selVueltaRuta").value);
+  if(!x) return;
+  const pts = x.pts.map(q=>[q[0],q[1]]);
+  if(st.sim){ st.ruta = prepararRuta(pts); st.rutaFecha = "prueba"; }
+  else { guardar("r29-ruta", {fecha:hoy(), pts}); cargarRuta(); }
+  if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
+  hablar("Ruta guardada.", true);
+  pintarPanelRuta(); pintarMapa(); verTodo();
+  $("rutaTxt").innerHTML = `<b>¡Listo! Guardé la vuelta ${x.v} como tu ruta.</b> ` + $("rutaTxt").innerHTML;
+};
+let confirmarBorrar = false;
+$("btnBorrarRuta").onclick = ()=>{
+  if(!confirmarBorrar){ confirmarBorrar = true; $("btnBorrarRuta").textContent = "Toca otra vez para borrarla"; setTimeout(()=>{ confirmarBorrar=false; $("btnBorrarRuta").textContent="Borrar mi ruta guardada"; }, 4000); return; }
+  confirmarBorrar = false; $("btnBorrarRuta").textContent = "Borrar mi ruta guardada";
+  try{ localStorage.removeItem("r29-ruta"); }catch(e){}
+  cargarRuta(); pintarPanelRuta(); pintarMapa();
+};
+
+/* ---------- Compartir el resumen del día por WhatsApp ---------- */
+function textoResumen(){
+  const marcas = marcasActuales();
+  const dia = new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"});
+  let txt = `🚌 *Ruta 29 · Planilla ${st.cfg.planilla}*\n${dia}\n`;
+  let total=0, n=0, tarde=0;
+  [...new Set(st.plan.map(p=>p.vuelta))].forEach(v=>{
+    const pv = st.plan.filter(p=>p.vuelta===v && !p.salida && marcas[p.i]!=null);
+    if(!pv.length) return;
+    txt += `\n*Vuelta ${v}*\n`;
+    pv.forEach(p=>{
+      const m = (p.t - marcas[p.i])/60000; total+=m; n++; if(m<0) tarde++;
+      txt += `${m>=0?"✅":"🔴"} ${PUNTOS[p.id].corto} ${fmt(p.t)} → ${fmtDif(m)}\n`;
+    });
+  });
+  if(!n) return null;
+  txt += `\nMarcas: ${n} · Con retraso: ${tarde} · Promedio: ${fmtDif(total/n)} min`;
+  return txt;
+}
+$("btnShare").onclick = ()=>{
+  const t = textoResumen();
+  if(!t){ $("btnShare").textContent = "Todavía no hay marcas para compartir"; setTimeout(()=> $("btnShare").textContent = "📤 Compartir por WhatsApp", 2500); return; }
+  if(app && app.compartir) app.compartir(t);
+  else if(app) app.abrirEnlace("https://wa.me/?text=" + encodeURIComponent(t));
+  else window.open("https://wa.me/?text=" + encodeURIComponent(t), "_blank");
+};
 
 /* =====================================================================
    12. PREGUNTA DEL DÍA
@@ -772,13 +1051,14 @@ $("btnChangeSetup").onclick = mostrarSetup;
    13. PESTAÑAS Y BOTONES
    ===================================================================== */
 function irA(tab){
-  ["Ruta","Planillas","Dia"].forEach(t=>{
+  ["Ruta","Planillas","Mapa","Dia"].forEach(t=>{
     $("tab"+t).hidden = t!==tab;
     document.querySelector(`[data-tab="${t}"]`).setAttribute("aria-current", t===tab ? "page" : "false");
   });
   if(tab==="Ruta") pintar();
   if(tab==="Planillas") pintarPlanillas();
   if(tab==="Dia") pintarDia();
+  if(tab==="Mapa") abrirMapa();
   window.scrollTo(0,0);
 }
 document.querySelectorAll("[data-tab]").forEach(b=> b.onclick = ()=>irA(b.dataset.tab));
@@ -788,6 +1068,29 @@ $("pllMas").onclick = ()=>{ const s=$("pllSel"); if(+s.value<TOTAL_PLANILLAS){ s
 $("btnGps").onclick = iniciarGps;
 $("btnSim").onclick = iniciarSim;
 $("btnMark").onclick = ()=>marcar();
+// Corregir la ubicación del punto que toca: hay que tocar dos veces para confirmar
+let confirmarFijar = false;
+$("btnFijar").onclick = ()=>{
+  if(!st.pos || !st.cfg) return;
+  const P = st.plan[st.idx];
+  if(P.salida && P.id!=="palmas" && P.id!=="cana") return;
+  if(!confirmarFijar){
+    confirmarFijar = true;
+    $("btnFijar").textContent = `¿Seguro que estás en ${P.nombre}? Toca otra vez`;
+    setTimeout(()=>{ confirmarFijar = false; pintar(); }, 5000);
+    return;
+  }
+  confirmarFijar = false;
+  const c = leer("r29-puntos") || {};
+  c[P.id] = [+st.pos.lat.toFixed(6), +st.pos.lon.toFixed(6)];
+  guardar("r29-puntos", c);
+  aplicarCorrecciones(); cargarRuta();
+  const idx = st.idx; st.plan = armarHorario(st.cfg); st.idx = idx;
+  if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
+  hablar(`Listo, guardé ${P.nombre} en este sitio.`, true);
+  if(marcasActuales()[P.i]==null) setTimeout(()=>marcar(), st.nativo ? 1500 : 0);
+  pintar();
+};
 $("btnPrev").onclick = anterior;
 $("btnVoice").onclick = ()=>{
   st.voz = !st.voz; $("btnVoice").classList.toggle("on", st.voz);
@@ -822,6 +1125,7 @@ if(app){
 /* =====================================================================
    ARRANQUE
    ===================================================================== */
+aplicarCorrecciones(); cargarRuta(); cargarTraza(); st.trazaMotor = 0;
 cargarDia();
 st.voz = !!leer("r29-voz");
 if(st.voz){ $("btnVoice").classList.add("on"); $("btnVoice").textContent="🔊 Voz"; }
@@ -834,6 +1138,7 @@ setInterval(()=>{
   if(app) leerMotor();
   if(!$("tabRuta").hidden) pintar();
   else if(!$("tabDia").hidden) pintarDia();
+  else if(!$("tabMapa").hidden) pintarMapa();
   else $("clock").textContent = fmt(Date.now());
 }, app ? 1000 : 5000);
 </script>
