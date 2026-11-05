@@ -159,6 +159,15 @@ tr.cur td{background:color-mix(in srgb,var(--accent) 12%,var(--panel))}
 .leaflet-tooltip.pc:before{display:none}
 .ruta-btns{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 14px}
 .ruta-btns select{flex:1 1 150px}
+/* Terminar el día */
+button.fin{border:2px solid var(--bad);color:var(--bad);background:var(--panel);font-size:16px;padding:13px}
+.modal{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center;
+  padding:16px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+.modal-box{background:var(--panel);color:var(--ink);border-radius:16px;padding:20px 18px;max-width:480px;width:100%;display:flex;flex-direction:column;gap:12px}
+.modal-box h3{margin:0;font-family:var(--f-display);font-size:28px;line-height:1.05}
+.modal-box p{margin:0;color:var(--muted);font-size:15px;line-height:1.45}
+.modal-box button{font-size:17px;padding:15px}
+button.peligro{background:var(--bad);border-color:var(--bad);color:#fff}
 /* Pestañas abajo */
 nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--panel);border-top:1px solid var(--line);
   display:grid;grid-template-columns:repeat(4,1fr);
@@ -256,6 +265,8 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
     <div class="gps" id="gpsState"><i></i><span>GPS apagado</span></div>
     <button id="btnFijar" hidden>📍 Corregir ubicación de este punto aquí</button>
     <button class="link" id="btnBattery" hidden style="align-self:flex-start">Evitar que el celular cierre la app (batería)</button>
+    <button class="fin" id="btnTerminar">🏁 Terminar el día</button>
+    <button class="primary" id="btnReanudar" hidden>Me equivoqué: seguir trabajando</button>
 
     <section class="card">
       <h2><span style="font-family:var(--f-display);font-size:20px;font-weight:700;color:var(--ink)" id="sheetTitle">Vuelta</span> <span id="sheetSub"></span></h2>
@@ -320,6 +331,15 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
   </div>
 </div>
 
+<!-- Ventana para confirmar que terminó el día (por si lo toca sin querer) -->
+<div class="modal" id="modalFin" hidden role="dialog" aria-modal="true" aria-labelledby="finTitulo">
+  <div class="modal-box">
+    <h3 id="finTitulo">¿Ya terminaste el día?</h3>
+    <p>Se apaga el GPS y ya no se marcan más puntos de control, aunque sigas andando. Tu resumen del día queda guardado.</p>
+    <button class="peligro" id="btnFinSi">Sí, ya terminé</button>
+    <button id="btnFinNo">No, sigo trabajando</button>
+  </div>
+</div>
 <!-- (la pestaña Mapa va fuera del contenedor angosto para usar todo el ancho) -->
 <nav class="tabs" id="tabs" hidden>
   <button data-tab="Ruta" aria-current="page"><span>🚌</span>Ruta</button>
@@ -570,7 +590,7 @@ function calcular(){
    6. MARCAR AUTOMÁTICO (cuando el GPS lo lleva la página)
    ===================================================================== */
 function revisarLlegada(){
-  if(!st.pos || st.idx>=st.plan.length) return;
+  if(!st.pos || st.idx>=st.plan.length || diaTerminado()) return;
   const t = ahora();
   // Revisa el punto que toca y los siguientes: el primero que encuentre cerca, ese marca.
   for(let j=st.idx; j<=Math.min(st.idx+MIRAR_ADELANTE, st.plan.length-1); j++){
@@ -642,6 +662,19 @@ function pintar(){
   if(!confirmarFijar) $("btnFijar").textContent = `📍 Estoy en ${P.nombre}: guardar ubicación aquí`;
 
   const box = $("status"), yaMarcado = marcas[P.i];
+  const fin = diaTerminado();
+  ["btnGps","btnSim","btnPrev","btnMark","btnTerminar"].forEach(id=> $(id).hidden = fin);
+  $("btnReanudar").hidden = !fin;
+  if(fin){
+    const ms = st.plan.filter(p=>!p.salida && marcas[p.i]!=null).map(p=>(p.t-marcas[p.i])/60000);
+    const prom = ms.length ? ms.reduce((a,b)=>a+b,0)/ms.length : null;
+    box.className = "status " + (prom==null ? "" : prom>=0 ? "ok" : "bad");
+    $("statusLbl").textContent = `Día terminado a las ${fmt(st.cfg.terminado)}`;
+    $("statusBig").textContent = prom==null ? "🏁" : fmtDif(prom)+" min";
+    $("statusMsg").textContent = ms.length ? `Promedio de ${ms.length} marcas. Mira el detalle en “Mi día”.` : "No quedaron marcas hoy.";
+    pintarPlanilla();
+    return;
+  }
   if(yaMarcado!=null){
     const m = (P.t - yaMarcado)/60000;
     box.className = "status " + (m>=0?"ok":"bad");
@@ -781,6 +814,7 @@ function pintarPlanillas(){
    9. GPS DEL NAVEGADOR (cuando no hay app de Android)
    ===================================================================== */
 function iniciarGps(){
+  if(diaTerminado()) return;
   if(app){ alternarNativo(); return; }
   if(st.sim) pararSim();
   if(!("geolocation" in navigator)){ estadoGps("err","Este navegador no tiene GPS"); return; }
@@ -1178,6 +1212,27 @@ $("btnSetupOk").onclick = ()=>{
   irA("Ruta");
 };
 $("btnChangeSetup").onclick = mostrarSetup;
+
+/* ---------- Terminar el día (con confirmación) ---------- */
+function diaTerminado(){ return !!(st.cfg && st.cfg.terminado && !st.sim); }
+$("btnTerminar").onclick = ()=>{ $("modalFin").hidden = false; $("btnFinNo").focus(); };
+$("btnFinNo").onclick = ()=>{ $("modalFin").hidden = true; };
+$("btnFinSi").onclick = ()=>{
+  $("modalFin").hidden = true;
+  if(st.sim) pararSim();
+  if(app && app.activo()) app.detener();                       // apaga el motor de Android
+  if(st.gpsWatch!=null){ navigator.geolocation.clearWatch(st.gpsWatch); st.gpsWatch = null; }
+  hablar("Día terminado. Buen trabajo.", true);
+  st.nativo = false; st.pos = null; st.vel = null;
+  st.cfg.terminado = Date.now(); guardar("r29-config", st.cfg);
+  estadoGps("", "GPS apagado: terminaste el día");
+  $("btnGps").textContent = "Iniciar GPS";
+  pintar();
+};
+$("btnReanudar").onclick = ()=>{
+  delete st.cfg.terminado; guardar("r29-config", st.cfg);
+  ubicarIdx(); pintar();
+};
 
 /* =====================================================================
    13. PESTAÑAS Y BOTONES
