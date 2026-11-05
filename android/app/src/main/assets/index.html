@@ -104,6 +104,19 @@ tr.cur td{background:color-mix(in srgb,var(--accent) 12%,var(--panel))}
 .totals b{font-family:var(--f-mono);color:var(--ink)}
 .empty{padding:14px 16px;color:var(--muted);font-size:14px;line-height:1.45}
 
+/* Planilla con formato de papel: rejilla negra, números grandes y alineados */
+.papel{padding:8px 6px 10px;display:flex;flex-direction:column;gap:0;background:var(--panel)}
+.papel table{border-collapse:collapse;width:100%;table-layout:fixed}
+.papel th,.papel td{border:1.5px solid var(--ink);position:static;background:transparent;padding:6px 2px;text-align:center}
+.papel-head th{font-family:var(--f-display);font-size:16px;font-weight:700;color:var(--ink);text-align:left;padding-left:6px;width:22%}
+.papel-head td{font-family:var(--f-display);font-size:18px;font-weight:600;text-align:left;padding-left:6px;white-space:nowrap;overflow:hidden}
+.papel-head td.num{font-size:22px;font-weight:800}
+.papel-head{border-bottom:0}
+.papel-tabla{margin-top:-1.5px}
+.papel-tabla th{font-family:var(--f-display);font-size:clamp(12px,3.4vw,15px);font-weight:700;color:var(--ink);padding:7px 1px;white-space:normal;line-height:1}
+.papel-tabla td{font-family:var(--f-display);font-weight:600;font-size:clamp(12px,3.5vw,19px);padding:9px 0;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.papel-tabla th:first-child,.papel-tabla td:first-child{position:static;padding-left:0;text-align:center}
+.papel-tabla tr.cur td{background:color-mix(in srgb,var(--accent) 22%,transparent);font-weight:700}
 .pll-pick{display:flex;gap:8px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .pll-pick select{flex:1 1 160px}
 .pll-rel{padding:10px 16px;color:var(--muted);font-size:14px;border-bottom:1px solid var(--line)}
@@ -284,6 +297,8 @@ const PUNTOS = {
   antonio: {nombre:"Antonio Nariño", corto:"Ant", lat:2.9402976, lon:-75.2579156},
   palmas:  {nombre:"Palmas",         corto:"Pal", lat:2.9454504, lon:-75.2420411},
 };
+// Cómo se llaman las columnas en la planilla de papel
+const COLUMNA_PAPEL = {cana:"Villa C", poli:"Villa C", vegas:"Vegas", caldo:"Presen", antonio:"U Anto", palmas:"Palmas"};
 // Una vuelta completa. "min" = minutos después de la marca del Polideportivo.
 const CICLO = [
   {id:"cana",    min:-10, salida:true},  // salida de Caña Brava con 10 de adelanto
@@ -583,23 +598,30 @@ function pintarPlanillas(){
   const n = +$("pllSel").value, d = n - st.cfg.planilla;
   $("pllRel").innerHTML = d===0 ? "<b>Esta es tu planilla.</b>"
     : `La planilla <b>${n}</b> va <b>${Math.abs(d)*MIN_ENTRE_CARROS} minutos ${d<0?"adelante":"atrás"}</b> de ti (${Math.abs(d)} carro${Math.abs(d)>1?"s":""}).`;
-  const plan = horarioPlanilla(n);
+  // Igual que la planilla de papel: 9 columnas (sin la salida) y una fila por vuelta
+  const plan = horarioPlanilla(n).filter(p => !(p.salida && p.id==="cana"));
   const vueltas = [...new Set(plan.map(p=>p.vuelta))];
   const ahoraT = Date.now();
-  let html = '<table><thead><tr><th>Vuelta</th>';
-  CICLO.forEach(c=> html += `<th>${c.salida ? "Sal" : PUNTOS[c.id].corto}</th>`);
+  const fecha = new Date().toLocaleDateString("en-CA");
+  let html = `<div class="papel">
+    <table class="papel-head"><tbody>
+      <tr><th>Ruta</th><td>Ruta 29</td><th>Fecha</th><td>${fecha}</td></tr>
+      <tr><th># Plla</th><td class="num">${n}</td><th>Arranca</th><td>${st.cfg.punto==="cana"?"Caña Brava":"Palmas"}</td></tr>
+    </tbody></table>
+    <table class="papel-tabla"><thead><tr>`;
+  CICLO.slice(1).forEach(c=> html += `<th>${COLUMNA_PAPEL[c.id]}</th>`);
   html += '</tr></thead><tbody>';
   vueltas.forEach(v=>{
     const pv = plan.filter(p=>p.vuelta===v);
-    const enCurso = pv[0].t <= ahoraT && ahoraT <= pv[pv.length-1].t;
-    html += `<tr class="${enCurso?'cur':''}"><td>${v}</td>`;
-    CICLO.forEach((c,k)=>{
-      const p = pv.find(x=>x.k===k);
-      html += p ? `<td class="${p.salida?'salida':''}">${fmt(p.t)}</td>` : '<td class="na">·</td>';
+    const enCurso = pv[0].t - 10*60000 <= ahoraT && ahoraT <= pv[pv.length-1].t;
+    html += `<tr class="${enCurso?'cur':''}">`;
+    CICLO.slice(1).forEach((c,j)=>{
+      const p = pv.find(x=>x.k===j+1);
+      html += p ? `<td>${fmt(p.t)}</td>` : '<td class="na"></td>';
     });
     html += '</tr>';
   });
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   $("pllTabla").innerHTML = html;
 }
 
