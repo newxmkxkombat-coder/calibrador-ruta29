@@ -62,6 +62,10 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .status .msg{font-size:19px;font-weight:600;text-wrap:balance}
 .status .pron{font-size:15px;line-height:1.35;border-top:1px dashed currentColor;padding-top:8px;margin-top:4px;opacity:.95}
 .status .pron small{display:block;color:var(--muted);font-size:12px}
+.status .ultimo{display:flex;justify-content:space-between;align-items:baseline;gap:10px;border-top:1px dashed currentColor;padding-top:8px;margin-top:2px;font-size:16px}
+.status .ultimo span{color:var(--muted);font-size:14px;font-weight:600}
+.status .ultimo b{font-family:var(--f-mono);font-size:18px}
+.status .ultimo b.ok{color:var(--ok)} .status .ultimo b.bad{color:var(--bad)}
 
 .next{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
 .next .name{font-family:var(--f-display);font-size:32px;font-weight:700;line-height:1.05;min-width:0}
@@ -337,6 +341,7 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
       <div class="big" id="statusBig">—</div>
       <div class="msg" id="statusMsg">Toca “Iniciar GPS” cuando vayas a arrancar.</div>
       <div class="pron" id="pronostico" hidden></div>
+      <div class="ultimo" id="ultimoPunto" hidden></div>
     </section>
 
     <!-- PRÓXIMO PUNTO -->
@@ -454,6 +459,7 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
     <div class="mj-hora"><small id="mjFalta">—</small><b id="mjHora">--:--</b></div>
   </div>
   <div class="mj-pron" id="mjPron"></div>
+  <div class="mj-pron" id="mjUltimo"></div>
   <button class="mj-salir" id="btnSalirManejo">Apagar modo manejo</button>
 </div>
 <!-- Aviso pequeño de versión nueva: flota arriba en el centro y parpadea -->
@@ -509,7 +515,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 8; // versión más nueva de la app de Android
+const ULTIMA_APK = 9; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -783,7 +789,9 @@ function revisarLlegada(){
   for(let j=st.idx; j<=Math.min(st.idx+MIRAR_ADELANTE, st.plan.length-1); j++){
     const P = st.plan[j];
     if(st.marcas && marcasActuales()[P.i]!=null) continue;
-    if(j>st.idx && P.t - t > 45*60000) break;         // no saltar a puntos de mucho más tarde
+    // Un punto que NO es el que toca solo se marca si ya casi es su hora (máx. 15 min antes).
+    // Así no se marca Antonio Nariño de bajada cuando apenas vas subiendo.
+    if(j>st.idx && P.t - t > 15*60000) break;
     const d = distancia(st.pos, P);
     if(P.salida){
       // arrancó: ya se alejó del punto de salida (y ya casi es la hora)
@@ -835,6 +843,26 @@ function ubicarPorPosicion(){
       : (ant && ant.vuelta===P.vuelta && m[ant.i]==null ? `Ya pasaste ${ant.nombre}. Vas para ${P.nombre}.` : `Vas para ${P.nombre}.`), true);
   }
   return true;
+}
+
+/* Si un mismo sitio quedó marcado de subida y de bajada casi al mismo tiempo,
+   la de bajada está mal (fue el error de "mirar adelante"): se borra. */
+function limpiarMarcasDobles(){
+  const m = st.marcas; let borradas = 0;
+  st.plan.forEach(P=>{
+    if(m[P.i]==null || P.salida) return;
+    const otra = st.plan.find(Q=> Q.vuelta===P.vuelta && Q.id===P.id && Q.k < P.k && m[Q.i]!=null);
+    if(otra && Math.abs(m[P.i] - m[otra.i]) < 8*60000){
+      delete m[P.i]; borradas++;
+      Object.keys(TRAMOS).forEach(k=>{ if(k.startsWith(hoy()+"|")) delete TRAMOS[k]; }); // lo aprendido hoy se recalcula
+    }
+  });
+  if(borradas){
+    guardarMarcas(); guardar(LLAVE_TRAMOS, TRAMOS); indiceTramos = null;
+    aprenderDeMarcas(st.marcas, st.plan);
+    ubicarIdx();
+  }
+  return borradas;
 }
 
 function marcar(tReal, j){
@@ -950,6 +978,15 @@ function pintar(){
     else if(riesgo){ if(Date.now()-st.ultimaVoz > 90000) hablar(msg, true); }
     else hablar(`${textoMin(d)} para ${P.nombre}.`);
   }
+  // Último punto por el que pasaste (solo uno: se cambia con cada marca nueva)
+  let ult = null;
+  st.plan.forEach(q=>{ const tm = marcas[q.i]; if(tm!=null && !q.salida && (!ult || tm > ult.tm)) ult = {q, tm}; });
+  $("ultimoPunto").hidden = !ult;
+  if(ult){
+    const m = (ult.q.t - ult.tm)/60000;
+    $("ultimoPunto").innerHTML = `<span>Último punto: ${ult.q.nombre} · ${fmt(ult.tm)}</span><b class="${m>=0?"ok":"bad"}">${fmtDif(m)} min</b>`;
+    $("mjUltimo").textContent = `Último: ${ult.q.nombre} ${fmtDif(m)} min`;
+  } else $("mjUltimo").textContent = "";
   // Línea de pronóstico debajo del estado
   $("pronostico").hidden = r.llegada==null || P.salida;
   if(r.llegada!=null) $("pronostico").innerHTML = `🔮 A este ritmo llegas a <b>${P.nombre}</b> a las <b>${fmt(r.llegada)}</b> (${fmtDif(r.margen)}) <small>según ${r.fuente}</small>`;
@@ -1736,6 +1773,8 @@ aprenderDeMarcas(st.marcas, st.plan);
 { const v = leer("r29-voz"); st.voz = v===null ? true : !!v; } // la voz viene prendida; se apaga desde la app
 $("btnVoice").setAttribute("aria-checked", st.voz);
 if(app) leerMotor();
+// Borrar marcas dobles que hayan quedado (subida y bajada del mismo punto casi al mismo tiempo)
+if(st.cfg && limpiarMarcasDobles() && st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
 if(st.cfg){ $("tabs").hidden=false; $("pllSel").value = st.cfg.planilla; irA("Ruta"); if(leer("r29-manejo")) ponerManejo(true); }
 else mostrarSetup();
 setInterval(()=>{

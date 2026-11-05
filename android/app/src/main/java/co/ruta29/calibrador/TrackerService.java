@@ -280,7 +280,9 @@ public class TrackerService extends Service implements LocationListener {
         for (int j = i; j <= Math.min(i + 3, puntos.length() - 1); j++) {
             JSONObject p = punto(j);
             if (marcas.has(String.valueOf(p.optInt("i")))) continue;
-            if (j > i && p.optLong("t") - ahora > 45 * 60000L) break; // no saltar a puntos de mucho más tarde
+            // Un punto que NO es el que toca solo se marca si ya casi es su hora (máx. 15 min antes).
+            // Así no se marca Antonio Nariño de bajada cuando apenas vas subiendo.
+            if (j > i && p.optLong("t") - ahora > 15 * 60000L) break;
             double d = distancia(la, lo, p.optDouble("lat"), p.optDouble("lon"));
             if (p.optBoolean("salida")) {
                 // arrancó: ya se alejó del punto de salida (y ya casi es la hora)
@@ -411,7 +413,7 @@ public class TrackerService extends Service implements LocationListener {
         // Puntico de color al inicio: verde = bien, amarillo = justo, rojo = atrasado
         String punto = cls.equals("ok") ? "🟢 " : cls.equals("warn") ? "🟡 " : "🔴 ";
         notificar(punto + signo + String.format(Locale.US, "%.1f", Math.abs(delta)) + " min · " + nombre + " " + hora,
-                msg + " Faltan " + (dist >= 1000 ? String.format(Locale.US, "%.1f km", dist / 1000) : Math.round(dist) + " m"));
+                msg + " Faltan " + (dist >= 1000 ? String.format(Locale.US, "%.1f km", dist / 1000) : Math.round(dist) + " m") + ultimoTexto());
 
         String estadoVoz = cls + (riesgo ? "-riesgo" : "");
         if (!estadoVoz.equals(ultimoEstado)) {
@@ -422,6 +424,23 @@ public class TrackerService extends Service implements LocationListener {
         } else if (!riesgo && ahora - ultimaVoz > 120000) { // un aviso cada 2 minutos
             hablar(textoMin(delta) + " para " + nombre + ".", false);
         }
+    }
+
+    // "Último: Antonio Nariño +6.0" — el punto marcado más reciente (solo uno)
+    private String ultimoTexto() {
+        long mejorT = -1; JSONObject mejor = null;
+        synchronized (candado) {
+            for (int j = 0; j < puntos.length(); j++) {
+                JSONObject q = punto(j);
+                String k = String.valueOf(q.optInt("i"));
+                if (q.optBoolean("salida") || !marcas.has(k)) continue;
+                long tm = marcas.optLong(k);
+                if (tm > mejorT) { mejorT = tm; mejor = q; }
+            }
+        }
+        if (mejor == null) return "";
+        double m = (mejor.optLong("t") - mejorT) / 60000.0;
+        return "\nÚltimo: " + mejor.optString("nombre") + " " + (m >= 0 ? "+" : "−") + String.format(Locale.US, "%.1f", Math.abs(m)) + " min";
     }
 
     // ================= VOZ =================
