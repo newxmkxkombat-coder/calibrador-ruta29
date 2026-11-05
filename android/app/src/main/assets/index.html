@@ -1,0 +1,818 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Calibrador Ruta 29</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#ffbf1f">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: una columna tipo tablero de bus. Pestañas abajo: Ruta (en vivo), Planillas (compañeros), Día (resumen). */
+:root{
+  --bg:#eef0ea; --panel:#ffffff; --ink:#15181a; --muted:#5d6560; --line:#d4d8d0;
+  --accent:#e5a100;
+  --ok:#1f8a4c; --warn:#c77700; --bad:#c62828;
+  --ok-bg:#dff1e5; --warn-bg:#fbeccf; --bad-bg:#fbdedc;
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111413; --panel:#1b1f1d; --ink:#f1f3ee; --muted:#9aa39d; --line:#2d332f;
+  --accent:#ffbf1f; --ok:#3ccf7a; --warn:#ffb020; --bad:#ff5a4f;
+  --ok-bg:#12321f; --warn-bg:#3a2a0b; --bad-bg:#3d1513; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111413; --panel:#1b1f1d; --ink:#f1f3ee; --muted:#9aa39d; --line:#2d332f;
+  --accent:#ffbf1f; --ok:#3ccf7a; --warn:#ffb020; --bad:#ff5a4f;
+  --ok-bg:#12321f; --warn-bg:#3a2a0b; --bad-bg:#3d1513; color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:calc(12px + env(safe-area-inset-top,0px)) calc(84px + env(safe-area-inset-bottom,0px))}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px;width:100%;min-width:0}
+.wrap>*{min-width:0} /* deja que las tablas anchas se deslicen por dentro sin ensanchar la pantalla */
+
+header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.route{background:var(--accent);color:#15181a;font-family:var(--f-display);font-weight:800;font-size:22px;padding:2px 10px;border-radius:6px}
+.brand small{display:block;color:var(--muted);font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+.brand b{font-family:var(--f-display);font-size:20px;font-weight:700}
+.clock{font-family:var(--f-mono);font-weight:700;font-size:28px;font-variant-numeric:tabular-nums}
+
+.status{border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:6px;background:var(--panel);border:2px solid var(--line)}
+.status.ok{background:var(--ok-bg);border-color:var(--ok)}
+.status.warn{background:var(--warn-bg);border-color:var(--warn)}
+.status.bad{background:var(--bad-bg);border-color:var(--bad)}
+.lbl{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.status .big{font-family:var(--f-display);font-weight:800;font-size:clamp(52px,17vw,84px);line-height:.95;font-variant-numeric:tabular-nums}
+.status.ok .big{color:var(--ok)} .status.warn .big{color:var(--warn)} .status.bad .big{color:var(--bad)}
+.status .msg{font-size:19px;font-weight:600;text-wrap:balance}
+
+.next{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:end}
+.next .lbl{grid-column:1/-1}
+.next .name{font-family:var(--f-display);font-size:30px;font-weight:700;line-height:1.05;min-width:0}
+.next .time{font-family:var(--f-mono);font-size:30px;font-weight:700;color:var(--accent)}
+.facts{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 16px;color:var(--muted);font-size:15px;margin-top:6px}
+.facts b{color:var(--ink);font-family:var(--f-mono);font-weight:500}
+.mates{grid-column:1/-1;display:flex;gap:6px;margin-top:10px;overflow-x:auto;padding-bottom:2px}
+.mate{flex:0 0 auto;border:1px solid var(--line);border-radius:10px;padding:6px 10px;text-align:center;font-size:12px;color:var(--muted)}
+.mate b{display:block;font-family:var(--f-mono);font-size:15px;color:var(--ink)}
+.mate.me{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
+
+.controls{display:flex;flex-wrap:wrap;gap:8px}
+button,select,input{font:inherit;font-weight:600;font-size:15px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:11px 14px}
+button{cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#15181a}
+button.on{border-color:var(--ok);color:var(--ok)}
+.controls .grow{flex:1 1 140px}
+button.link{background:none;border:0;padding:4px 0;color:var(--muted);text-decoration:underline;font-weight:500;font-size:14px}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.card h2{margin:0;padding:12px 16px;font-family:var(--f-display);font-size:20px;font-weight:700;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.card h2 span{color:var(--muted);font-family:var(--f-body);font-size:14px;font-weight:500;align-self:center}
+ol{list-style:none;margin:0;padding:0}
+li{display:grid;grid-template-columns:22px 1fr auto auto;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
+li:last-child{border-bottom:0}
+li .dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--muted)}
+li.done .dot{background:var(--ok);border-color:var(--ok)}
+li.late .dot{background:var(--bad);border-color:var(--bad)}
+li.cur{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+li.cur .dot{border-color:var(--accent);background:var(--accent)}
+li .pt{min-width:0}
+li .pt small{color:var(--muted);display:block;font-size:12px}
+li .sched{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+li .real{font-family:var(--f-mono);font-size:13px;min-width:56px;text-align:right;color:var(--muted)}
+li.done .real{color:var(--ok)} li.late .real{color:var(--bad)}
+
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-family:var(--f-mono);font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 7px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-family:var(--f-body);font-weight:600;color:var(--muted);font-size:12px}
+th:first-child,td:first-child{text-align:left;padding-left:16px;position:sticky;left:0;background:var(--panel)}
+td.ok{color:var(--ok);font-weight:700} td.bad{color:var(--bad);font-weight:700} td.na{color:var(--muted)}
+td.salida{color:var(--muted)}
+tr.cur td{background:color-mix(in srgb,var(--accent) 12%,var(--panel))}
+.totals{display:flex;flex-wrap:wrap;gap:6px 18px;padding:12px 16px;color:var(--muted);font-size:14px}
+.totals b{font-family:var(--f-mono);color:var(--ink)}
+.empty{padding:14px 16px;color:var(--muted);font-size:14px;line-height:1.45}
+
+.pll-pick{display:flex;gap:8px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.pll-pick select{flex:1 1 160px}
+.pll-rel{padding:10px 16px;color:var(--muted);font-size:14px;border-bottom:1px solid var(--line)}
+.pll-rel b{color:var(--ink)}
+
+.gps{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.gps i{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block;flex:0 0 auto}
+.gps.live i{background:var(--ok)} .gps.err i{background:var(--bad)}
+.simtag{display:inline-block;background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn);border-radius:6px;font-size:12px;font-weight:700;padding:1px 6px;margin-left:6px;vertical-align:middle}
+.note{color:var(--muted);font-size:14px;line-height:1.45;margin:0}
+
+.banner{background:var(--panel);border:2px dashed var(--accent);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.banner b{font-family:var(--f-display);font-size:20px}
+.banner p{color:var(--muted);font-size:14px;line-height:1.4;margin:0}
+
+/* Pregunta del día */
+.setup{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 16px;display:flex;flex-direction:column;gap:16px}
+.setup h1{margin:0;font-family:var(--f-display);font-size:30px;line-height:1.05;text-wrap:balance}
+.setup p{margin:0;color:var(--muted);font-size:15px;line-height:1.45}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-weight:600}
+.field small{color:var(--muted);font-size:13px}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.seg button{padding:14px 10px;font-size:16px}
+.seg button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#15181a}
+.setup input[type=time]{font-family:var(--f-mono);font-size:26px;padding:10px 14px}
+.preview{background:var(--bg);border-radius:10px;padding:12px 14px;font-size:14px;color:var(--muted);line-height:1.5}
+.preview b{color:var(--ink);font-family:var(--f-mono)}
+
+/* Pestañas abajo */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--panel);border-top:1px solid var(--line);
+  display:grid;grid-template-columns:repeat(3,1fr);
+  padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+nav.tabs button{border:0;border-radius:0;background:none;padding:12px 4px 14px;font-size:14px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px}
+nav.tabs button span{font-size:20px;line-height:1}
+nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 var(--accent)}
+@media (prefers-reduced-motion:no-preference){.status{transition:background .4s,border-color .4s}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="route">29</span>
+      <div><small id="subTitle">Calibrador · Neiva</small><b id="vueltaTitle">Ruta 29</b></div>
+    </div>
+    <div class="clock" id="clock">--:--</div>
+  </header>
+
+  <!-- ===== PREGUNTA DEL DÍA ===== -->
+  <section class="setup" id="setup" hidden>
+    <h1>¿Cómo arrancas hoy?</h1>
+    <p>Esto se pregunta una sola vez al día. Con estos datos la app calcula todas tus horas y las de tus compañeros.</p>
+    <div class="field">
+      <label>¿De dónde arrancas?</label>
+      <div class="seg" role="group" aria-label="Punto de arranque">
+        <button type="button" id="optCana" aria-pressed="true">Caña Brava</button>
+        <button type="button" id="optPalmas" aria-pressed="false">Palmas</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="inHora" id="lblHora">Hora de la planilla en el Polideportivo</label>
+      <input type="time" id="inHora" value="05:55" required>
+      <small id="helpHora">Es la primera hora de tu planilla. La app te pone la salida de Caña Brava 10 minutos antes.</small>
+    </div>
+    <div class="controls">
+      <div class="field grow">
+        <label for="inPlanilla">Número de planilla</label>
+        <select id="inPlanilla"></select>
+      </div>
+      <div class="field grow">
+        <label for="inVueltas">Vueltas hoy</label>
+        <select id="inVueltas"></select>
+      </div>
+    </div>
+    <div class="preview" id="setupPreview"></div>
+    <button class="primary" id="btnSetupOk" style="font-size:18px;padding:15px">Listo, empezar el día</button>
+  </section>
+
+  <!-- ===== PESTAÑA RUTA ===== -->
+  <div id="tabRuta" class="wrap" style="gap:14px" hidden>
+    <section class="banner" id="updateBox" hidden>
+      <b>Hay una versión nueva de la app</b>
+      <p>Trae mejoras en el GPS o la voz. Tu registro del día no se pierde.</p>
+      <button class="primary" id="btnUpdate">Descargar actualización</button>
+    </section>
+    <section class="banner" id="installBox" hidden>
+      <b>Descarga la app de Android</b>
+      <p>Funciona con la pantalla apagada: el GPS sigue marcando y la voz te sigue avisando.</p>
+      <a class="primary" id="lnkApk" href="calibrador-ruta29.apk" download style="text-align:center;text-decoration:none;font-weight:700;font-size:17px;padding:14px;border-radius:10px;background:var(--accent);color:#15181a">📲 Descargar app (APK)</a>
+      <button id="btnInstall" hidden>Instalar versión web</button>
+      <p id="installHelp">Al abrir el archivo, Android puede pedirte permitir “instalar apps de origen desconocido”. Dale Permitir y luego Instalar.</p>
+      <button class="link" id="installHide" style="align-self:flex-start">Ya la instalé, no mostrar más</button>
+    </section>
+
+    <section class="status" id="status">
+      <div class="lbl" id="statusLbl">Estado</div>
+      <div class="big" id="statusBig">—</div>
+      <div class="msg" id="statusMsg">Toca “Iniciar GPS” cuando vayas a arrancar.</div>
+    </section>
+
+    <section class="next">
+      <div class="lbl">Próximo punto de control</div>
+      <div class="name" id="nextName">—</div>
+      <div class="time" id="nextTime">--:--</div>
+      <div class="facts">
+        <span>Faltan <b id="fDist">—</b></span>
+        <span>Tiempo <b id="fLeft">—</b></span>
+        <span>Vas a <b id="fSpeed">—</b></span>
+        <span>Necesitas <b id="fNeed">—</b></span>
+      </div>
+      <div class="mates" id="mates" aria-label="Compañeros en este punto"></div>
+    </section>
+
+    <div class="controls">
+      <button class="primary grow" id="btnGps">Iniciar GPS</button>
+      <button class="grow" id="btnSim">Modo prueba</button>
+      <button id="btnVoice">🔈 Voz</button>
+    </div>
+    <div class="controls">
+      <button id="btnPrev" aria-label="Volver al punto anterior">◀ Anterior</button>
+      <button class="grow" id="btnMark">Ya marqué este punto</button>
+    </div>
+    <div class="gps" id="gpsState"><i></i><span>GPS apagado</span></div>
+    <button class="link" id="btnBattery" hidden style="align-self:flex-start">Evitar que el celular cierre la app (batería)</button>
+
+    <section class="card">
+      <h2><span style="font-family:var(--f-display);font-size:20px;font-weight:700;color:var(--ink)" id="sheetTitle">Vuelta</span> <span id="sheetSub"></span></h2>
+      <ol id="sheet"></ol>
+    </section>
+  </div>
+
+  <!-- ===== PESTAÑA PLANILLAS ===== -->
+  <div id="tabPlanillas" class="wrap" style="gap:14px" hidden>
+    <section class="card">
+      <h2>Planillas de los compañeros <span>de a 5 min entre carros</span></h2>
+      <div class="pll-pick">
+        <button id="pllMenos" aria-label="Planilla anterior">◀</button>
+        <select id="pllSel" aria-label="Número de planilla"></select>
+        <button id="pllMas" aria-label="Planilla siguiente">▶</button>
+      </div>
+      <div class="pll-rel" id="pllRel"></div>
+      <div class="tbl-wrap" id="pllTabla"></div>
+    </section>
+    <p class="note">Se calcula desde tu planilla: cada número más bajo va 5 minutos adelante de ti y cada número más alto va 5 minutos atrás.</p>
+  </div>
+
+  <!-- ===== PESTAÑA DÍA ===== -->
+  <div id="tabDia" class="wrap" style="gap:14px" hidden>
+    <section class="card">
+      <h2>Resumen del día <span id="dayDate"></span></h2>
+      <div id="daySummary"></div>
+    </section>
+    <section class="card">
+      <h2>Arranque de hoy</h2>
+      <div class="empty" id="daySetupTxt"></div>
+      <div style="padding:0 16px 14px"><button id="btnChangeSetup">Cambiar hora o punto de arranque</button></div>
+    </section>
+    <p class="note">En el resumen, <b>+</b> es adelanto y <b>−</b> es retraso, en minutos. Meta: pasar con 2 a 3 minutos de adelanto. El registro se guarda en este celular y empieza de cero cada día.</p>
+  </div>
+</div>
+
+<nav class="tabs" id="tabs" hidden>
+  <button data-tab="Ruta" aria-current="page"><span>🚌</span>Ruta</button>
+  <button data-tab="Planillas"><span>📋</span>Planillas</button>
+  <button data-tab="Dia"><span>📅</span>Mi día</button>
+</nav>
+
+<script>
+/* =====================================================================
+   1. DATOS DE LA RUTA 29
+   ===================================================================== */
+const PUNTOS = {
+  cana:    {nombre:"Caña Brava",     corto:"CBr", lat:2.9603658, lon:-75.2733307},
+  poli:    {nombre:"Polideportivo",  corto:"Pol", lat:2.9560771, lon:-75.2841492},
+  vegas:   {nombre:"Las Vegas",      corto:"Veg", lat:2.9379439, lon:-75.2959266},
+  caldo:   {nombre:"Caldo Parao",    corto:"Cal", lat:2.9276988, lon:-75.2865874},
+  antonio: {nombre:"Antonio Nariño", corto:"Ant", lat:2.9402976, lon:-75.2579156},
+  palmas:  {nombre:"Palmas",         corto:"Pal", lat:2.9454504, lon:-75.2420411},
+};
+// Una vuelta completa. "min" = minutos después de la marca del Polideportivo.
+const CICLO = [
+  {id:"cana",    min:-10, salida:true},  // salida de Caña Brava con 10 de adelanto
+  {id:"poli",    min:0},
+  {id:"vegas",   min:13},
+  {id:"caldo",   min:30},
+  {id:"antonio", min:44},
+  {id:"palmas",  min:55},
+  {id:"antonio", min:64},
+  {id:"caldo",   min:81},
+  {id:"vegas",   min:91},
+  {id:"cana",    min:109, llegada:true},
+];
+const DURACION_CICLO = 125;   // de un Polideportivo al siguiente (5:55 → 8:00)
+const IDX_PALMAS = 5;
+const MIN_ENTRE_CARROS = 5;
+const TOTAL_PLANILLAS = 24;
+const ADELANTO_META = 2.5;
+const RADIO_MARCA = 70, RADIO_SALIDA = 120, FACTOR_CALLES = 1.3;
+const ULTIMA_APK = 1; // versión más nueva de la app de Android
+const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
+
+/* =====================================================================
+   2. AYUDANTES
+   ===================================================================== */
+const $ = id => document.getElementById(id);
+const hoy = () => new Date().toLocaleDateString("en-CA");
+const fmt = t => new Date(t).toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit",hour12:false});
+const fmtDif = m => (m>=0?"+":"−") + Math.abs(m).toFixed(1);
+function horaHoy(hhmm){ const [h,m]=hhmm.split(":").map(Number); const d=new Date(); d.setHours(h,m,0,0); return d.getTime(); }
+function distancia(a,b){ // fórmula de Haversine: metros entre dos puntos GPS
+  const R=6371000, r=x=>x*Math.PI/180;
+  const dLat=r(b.lat-a.lat), dLon=r(b.lon-a.lon);
+  const h=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function textoMin(m){
+  const a=Math.abs(m), n = a<1 ? `${Math.round(a*60)} segundos` : `${a.toFixed(1).replace(".0","")} minutos`;
+  return m>=0 ? `${n} de adelanto` : `${n} de retraso`;
+}
+function leer(k){ try{ return JSON.parse(localStorage.getItem(k)); }catch(e){ return null; } }
+function guardar(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+
+/* =====================================================================
+   3. ARMAR EL HORARIO DEL DÍA
+   Con la hora y el punto de arranque se calcula cada marca del día.
+   Resultado: una lista ("línea de tiempo") con todas las marcas en orden.
+   ===================================================================== */
+function armarHorario(cfg, corrimientoMin=0){
+  const lista = [];
+  const base0 = horaHoy(cfg.hora) + corrimientoMin*60000;
+  const agregar = (vuelta, k, baseCiclo, esArranquePalmas=false) => {
+    const p = CICLO[k];
+    lista.push({
+      vuelta, k, id:p.id, nombre:PUNTOS[p.id].nombre, lat:PUNTOS[p.id].lat, lon:PUNTOS[p.id].lon,
+      t: baseCiclo + p.min*60000,
+      salida: !!p.salida || esArranquePalmas,
+      llegada: !!p.llegada,
+    });
+  };
+  if(cfg.punto === "cana"){
+    // hora = marca del Polideportivo; cada vuelta empieza con la salida de Caña Brava
+    for(let v=0; v<cfg.vueltas; v++){
+      const base = base0 + v*DURACION_CICLO*60000;
+      for(let k=0; k<CICLO.length; k++) agregar(v+1, k, base);
+    }
+  } else {
+    // hora = marca de Palmas. Primero media vuelta Palmas → Caña Brava (sin 10 de adelanto)
+    const base = base0 - CICLO[IDX_PALMAS].min*60000;
+    for(let k=IDX_PALMAS; k<CICLO.length; k++) agregar(1, k, base, k===IDX_PALMAS);
+    // luego vueltas completas desde Caña Brava
+    for(let v=1; v<cfg.vueltas; v++){
+      const b = base + v*DURACION_CICLO*60000;
+      for(let k=0; k<CICLO.length; k++) agregar(v+1, k, b);
+    }
+    // y al final media vuelta Caña Brava → Palmas, para terminar donde empezaste
+    const bf = base + cfg.vueltas*DURACION_CICLO*60000;
+    for(let k=0; k<=IDX_PALMAS; k++) agregar(cfg.vueltas+1, k, bf);
+  }
+  lista.forEach((m,i)=> m.i = i);
+  return lista;
+}
+// Otra planilla = la mía corrida 5 minutos por cada número de diferencia
+const horarioPlanilla = n => armarHorario(st.cfg, (n - st.cfg.planilla)*MIN_ENTRE_CARROS);
+
+/* =====================================================================
+   4. ESTADO
+   ===================================================================== */
+const app = window.Android || null; // existe solo dentro de la app de Android
+const st = {
+  cfg:null, plan:[], idx:0,
+  pos:null, vel:null, marcas:{},
+  gpsWatch:null, sim:null, simT:0, simMarcas:null,
+  voz:false, ultimaVoz:0, ultimoEstado:"", cerca:null,
+  nativo:false, // true cuando el motor de Android está llevando el GPS
+};
+const ahora = () => st.sim ? st.simT : Date.now();
+const marcasActuales = () => st.sim ? st.simMarcas : st.marcas;
+function guardarMarcas(){ if(!st.sim) guardar("r29-marcas", {fecha:hoy(), marcas:st.marcas}); }
+function cargarDia(){
+  const c = leer("r29-config");
+  st.cfg = c && c.fecha===hoy() ? c : null;
+  const m = leer("r29-marcas");
+  st.marcas = m && m.fecha===hoy() ? m.marcas : {};
+  if(st.cfg){ st.plan = armarHorario(st.cfg); ubicarIdx(); }
+}
+function ubicarIdx(){
+  // sigue desde el primer punto sin marca cuya hora no haya pasado hace más de 3 minutos
+  const t = Date.now(), m = st.marcas;
+  let i = st.plan.findIndex(p => m[p.i]==null && p.t > t - 3*60000);
+  st.idx = i<0 ? st.plan.length-1 : i;
+}
+
+/* =====================================================================
+   5. ¿VOY BIEN O MAL?
+   ===================================================================== */
+function calcular(){
+  const t = ahora(), P = st.plan[st.idx];
+  const r = {meta:P.t, minRestantes:(P.t - t)/60000};
+  if(!st.pos) return r;
+  const dist = distancia(st.pos, P)*FACTOR_CALLES;
+  r.dist = dist;
+  const minParaMeta = r.minRestantes - ADELANTO_META;
+  r.velNecesaria = minParaMeta>0 ? (dist/1000)/(minParaMeta/60) : Infinity;
+  const A = st.plan[st.idx-1];
+  if(!A || P.salida) return r;
+  const tramo = Math.max(1, distancia(A,P)*FACTOR_CALLES);
+  const minTramo = Math.max(1,(P.t - A.t)/60000);
+  const debido = Math.min(1, Math.max(0,(t - A.t)/(minTramo*60000)));
+  const real = Math.min(1, Math.max(0, 1 - dist/tramo));
+  r.delta = (real - debido)*minTramo;
+  if(r.minRestantes < 0) r.delta = Math.min(r.delta, r.minRestantes);
+  return r;
+}
+
+/* =====================================================================
+   6. MARCAR AUTOMÁTICO (cuando el GPS lo lleva la página)
+   ===================================================================== */
+function revisarLlegada(){
+  if(!st.pos || st.idx>=st.plan.length) return;
+  const P = st.plan[st.idx], d = distancia(st.pos, P);
+  if(P.salida){
+    if(d > RADIO_SALIDA && d < 1500) marcar();       // arrancó: se alejó del punto
+  } else if(d <= RADIO_MARCA){
+    marcar();
+  } else if(d <= 200){                                // plan B: pasó cerca y se está alejando
+    if(st.cerca==null || d < st.cerca.d) st.cerca = {d, t:ahora()};
+    else if(d > st.cerca.d + 40) marcar(st.cerca.t);
+  }
+}
+function marcar(tReal){
+  if(st.nativo){ app.marcar(); return; }
+  const P = st.plan[st.idx], t = typeof tReal==="number" ? tReal : ahora();
+  st.cerca = null;
+  marcasActuales()[P.i] = t; guardarMarcas();
+  const dif = (P.t - t)/60000;
+  hablar(P.salida ? `Arrancaste de ${P.nombre} con ${textoMin(dif)}.` : `Marcaste ${P.nombre} con ${textoMin(dif)}.`, true);
+  if(st.idx < st.plan.length-1) st.idx++;
+  st.ultimoEstado = "";
+  pintar();
+}
+function anterior(){
+  if(st.nativo){ app.anterior(); return; }
+  st.cerca = null;
+  if(st.idx>0){ st.idx--; delete marcasActuales()[st.plan[st.idx].i]; guardarMarcas(); pintar(); }
+}
+
+/* =====================================================================
+   7. VOZ (en el navegador; en la app de Android habla el motor nativo)
+   ===================================================================== */
+function hablar(txt, forzar=false){
+  if(st.nativo || !st.voz || !("speechSynthesis" in window)) return;
+  const t = Date.now();
+  if(!forzar && t - st.ultimaVoz < 60000) return;
+  st.ultimaVoz = t;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(txt); u.lang="es-CO"; u.rate=1.05;
+  speechSynthesis.speak(u);
+}
+
+/* =====================================================================
+   8. PINTAR LA PANTALLA
+   ===================================================================== */
+function pintar(){
+  $("clock").textContent = fmt(ahora());
+  if(!st.cfg) return;
+  const P = st.plan[st.idx], marcas = marcasActuales();
+  $("subTitle").textContent = `Planilla ${st.cfg.planilla} · Neiva`;
+  $("vueltaTitle").innerHTML = `Vuelta ${P.vuelta}` + (st.sim ? '<span class="simtag">PRUEBA</span>' : "");
+  const r = calcular();
+  $("nextName").textContent = P.salida ? `Salida ${P.nombre}` : P.nombre;
+  $("nextTime").textContent = fmt(P.t);
+  $("fLeft").textContent = r.minRestantes>=0 ? `${Math.floor(r.minRestantes)}:${String(Math.floor((r.minRestantes%1)*60)).padStart(2,"0")}` : "pasó";
+  $("fDist").textContent = r.dist!=null ? (r.dist>=1000 ? (r.dist/1000).toFixed(1)+" km" : Math.round(r.dist)+" m") : "—";
+  $("fSpeed").textContent = st.vel!=null ? Math.round(st.vel*3.6)+" km/h" : "—";
+  $("fNeed").textContent = r.velNecesaria==null ? "—" : isFinite(r.velNecesaria) ? Math.round(r.velNecesaria)+" km/h" : "¡ya!";
+  pintarCompas(P);
+
+  const box = $("status"), yaMarcado = marcas[P.i];
+  if(yaMarcado!=null){
+    const m = (P.t - yaMarcado)/60000;
+    box.className = "status " + (m>=0?"ok":"bad");
+    $("statusLbl").textContent = st.idx===st.plan.length-1 ? "Día terminado" : "Vuelta terminada";
+    $("statusBig").textContent = fmtDif(m)+" min";
+    $("statusMsg").textContent = `Llegaste con ${textoMin(m)}. Mira el resumen en “Mi día”.`;
+  } else if(P.salida){
+    box.className = "status " + (r.minRestantes>1 ? "ok" : r.minRestantes>0 ? "warn" : "bad");
+    $("statusLbl").textContent = "Arranque";
+    $("statusBig").textContent = r.minRestantes>0 ? `${Math.ceil(r.minRestantes)} min` : "¡Salga!";
+    $("statusMsg").textContent = r.minRestantes>0
+      ? (P.id==="cana" ? `Sales de Caña Brava a las ${fmt(P.t)} (10 de adelanto).` : `Sales de ${P.nombre} a las ${fmt(P.t)}.`)
+      : "Ya es hora de arrancar.";
+    if(r.minRestantes<=1 && r.minRestantes>0) hablar("Prepárate, en un minuto arrancas.");
+  } else if(r.delta==null){
+    box.className = "status";
+    $("statusLbl").textContent = "Estado";
+    $("statusBig").textContent = "—";
+    $("statusMsg").textContent = st.gpsWatch!=null||st.nativo ? "Esperando señal de GPS…" : "Toca “Iniciar GPS” cuando vayas a arrancar.";
+  } else {
+    const d = r.delta; let cls, msg;
+    if(d<0){ cls="bad"; msg="Vas atrasado. Dale un poquito más."; }
+    else if(d<1.5){ cls="warn"; msg="Vas justo. Mantén el ritmo o apura un poco."; }
+    else if(d<=4){ cls="ok"; msg="Vas bien de tiempo."; }
+    else { cls="warn"; msg="Vas muy adelantado. Puedes bajar el ritmo."; }
+    box.className = "status "+cls;
+    $("statusLbl").textContent = d>=0 ? "Adelanto" : "Atraso";
+    $("statusBig").textContent = fmtDif(d)+" min";
+    $("statusMsg").textContent = msg;
+    if(cls!==st.ultimoEstado){ hablar(`${msg} ${textoMin(d)} para ${P.nombre}.`, cls==="bad"); st.ultimoEstado=cls; }
+    else hablar(`${textoMin(d)} para ${P.nombre}.`);
+  }
+  pintarPlanilla();
+}
+function pintarCompas(P){
+  // Quién pasa por este mismo punto antes y después que yo
+  const box = $("mates"); box.innerHTML = "";
+  [-2,-1,0,1,2].forEach(d=>{
+    const n = st.cfg.planilla + d;
+    if(n<1 || n>TOTAL_PLANILLAS) return;
+    const el = document.createElement("div");
+    el.className = "mate" + (d===0 ? " me" : "");
+    el.innerHTML = `${d===0 ? "Tú" : (d<0 ? "Adelante" : "Atrás")} · P${n}<b>${fmt(P.t + d*MIN_ENTRE_CARROS*60000)}</b>`;
+    box.appendChild(el);
+  });
+}
+function pintarPlanilla(){
+  const P = st.plan[st.idx], marcas = marcasActuales();
+  const vuelta = st.plan.filter(p => p.vuelta===P.vuelta);
+  $("sheetTitle").textContent = `Vuelta ${P.vuelta}`;
+  $("sheetSub").textContent = `${fmt(vuelta[0].t)} → ${fmt(vuelta[vuelta.length-1].t)}`;
+  const ol = $("sheet"); ol.innerHTML = "";
+  vuelta.forEach(p=>{
+    const li = document.createElement("li"), real = marcas[p.i];
+    if(real!=null) li.className = (p.t-real)>=0 ? "done" : "late";
+    if(p.i===st.idx) li.className = "cur";
+    const sub = p.salida ? (p.id==="cana" ? "salida, 10 min antes" : "salida") : p.llegada ? "llegada" : (p.k<=IDX_PALMAS ? "ida" : "regreso");
+    li.innerHTML = `<span class="dot"></span><span class="pt">${p.nombre}<small>${sub}</small></span><span class="sched">${fmt(p.t)}</span><span class="real">${real!=null ? fmtDif((p.t-real)/60000) : ""}</span>`;
+    ol.appendChild(li);
+  });
+}
+
+/* ---------- Pestaña "Mi día" ---------- */
+function pintarDia(){
+  if(!st.cfg) return;
+  const marcas = marcasActuales();
+  $("dayDate").textContent = st.sim ? "prueba (no se guarda)" : new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"});
+  $("daySetupTxt").innerHTML = `Arrancaste desde <b>${st.cfg.punto==="cana"?"Caña Brava":"Palmas"}</b>, planilla <b>${st.cfg.planilla}</b>, primera marca <b>${st.cfg.hora}</b>, <b>${st.cfg.vueltas}</b> vueltas.`;
+  const vueltas = [...new Set(st.plan.map(p=>p.vuelta))].filter(v => st.plan.some(p=>p.vuelta===v && marcas[p.i]!=null));
+  if(!vueltas.length){
+    $("daySummary").innerHTML = '<div class="empty">Todavía no hay marcas hoy. Cuando pases por los puntos con el GPS encendido, aquí queda cada vuelta con su adelanto o retraso.</div>';
+    return;
+  }
+  let html = '<div class="tbl-wrap"><table><thead><tr><th>Vuelta</th>';
+  CICLO.forEach(c=> html += `<th>${c.salida ? "Sal" : PUNTOS[c.id].corto}</th>`);
+  html += '</tr></thead><tbody>';
+  let total=0, tarde=0, n=0;
+  vueltas.forEach(v=>{
+    const pv = st.plan.filter(p=>p.vuelta===v);
+    html += `<tr><td>${v}</td>`;
+    CICLO.forEach((c,k)=>{
+      const p = pv.find(x=>x.k===k);
+      const real = p ? marcas[p.i] : null;
+      if(!p || real==null){ html += '<td class="na">·</td>'; return; }
+      const m = (p.t-real)/60000;
+      if(!p.salida){ total+=m; n++; if(m<0) tarde++; }
+      html += `<td class="${m>=0?'ok':'bad'}">${fmtDif(m)}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += `</tbody></table></div><div class="totals"><span>Marcas <b>${n}</b></span><span>Con retraso <b>${tarde}</b></span><span>Promedio <b>${n?fmtDif(total/n):"—"} min</b></span></div>`;
+  $("daySummary").innerHTML = html;
+}
+
+/* ---------- Pestaña "Planillas" ---------- */
+function pintarPlanillas(){
+  if(!st.cfg) return;
+  const n = +$("pllSel").value, d = n - st.cfg.planilla;
+  $("pllRel").innerHTML = d===0 ? "<b>Esta es tu planilla.</b>"
+    : `La planilla <b>${n}</b> va <b>${Math.abs(d)*MIN_ENTRE_CARROS} minutos ${d<0?"adelante":"atrás"}</b> de ti (${Math.abs(d)} carro${Math.abs(d)>1?"s":""}).`;
+  const plan = horarioPlanilla(n);
+  const vueltas = [...new Set(plan.map(p=>p.vuelta))];
+  const ahoraT = Date.now();
+  let html = '<table><thead><tr><th>Vuelta</th>';
+  CICLO.forEach(c=> html += `<th>${c.salida ? "Sal" : PUNTOS[c.id].corto}</th>`);
+  html += '</tr></thead><tbody>';
+  vueltas.forEach(v=>{
+    const pv = plan.filter(p=>p.vuelta===v);
+    const enCurso = pv[0].t <= ahoraT && ahoraT <= pv[pv.length-1].t;
+    html += `<tr class="${enCurso?'cur':''}"><td>${v}</td>`;
+    CICLO.forEach((c,k)=>{
+      const p = pv.find(x=>x.k===k);
+      html += p ? `<td class="${p.salida?'salida':''}">${fmt(p.t)}</td>` : '<td class="na">·</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  $("pllTabla").innerHTML = html;
+}
+
+/* =====================================================================
+   9. GPS DEL NAVEGADOR (cuando no hay app de Android)
+   ===================================================================== */
+function iniciarGps(){
+  if(app){ alternarNativo(); return; }
+  if(st.sim) pararSim();
+  if(!("geolocation" in navigator)){ estadoGps("err","Este navegador no tiene GPS"); return; }
+  if(st.gpsWatch!=null){ navigator.geolocation.clearWatch(st.gpsWatch); st.gpsWatch=null; estadoGps("","GPS apagado"); $("btnGps").textContent="Iniciar GPS"; pintar(); return; }
+  estadoGps("","Buscando señal…");
+  st.gpsWatch = navigator.geolocation.watchPosition(p=>{
+    st.pos = {lat:p.coords.latitude, lon:p.coords.longitude};
+    if(p.coords.speed!=null) st.vel = p.coords.speed;
+    estadoGps("live",`GPS activo · precisión ${Math.round(p.coords.accuracy)} m`);
+    revisarLlegada(); pintar();
+  }, e=> estadoGps("err", e.code===1 ? "Permiso de ubicación negado: actívalo en los ajustes de Chrome" : "No hay señal de GPS"),
+  {enableHighAccuracy:true, maximumAge:2000, timeout:15000});
+  $("btnGps").textContent = "Detener GPS";
+  pantallaEncendida();
+}
+function estadoGps(cls,txt){ const g=$("gpsState"); g.className="gps "+cls; g.querySelector("span").textContent=txt; }
+async function pantallaEncendida(){ try{ await navigator.wakeLock?.request("screen"); }catch(e){} }
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible" && st.gpsWatch!=null) pantallaEncendida(); });
+
+/* =====================================================================
+   10. MOTOR DE ANDROID (GPS y voz con la pantalla apagada)
+   La página le manda el horario al motor; el motor manda de vuelta
+   la posición y las marcas cada segundo.
+   ===================================================================== */
+function planParaMotor(){
+  return JSON.stringify({
+    fecha: hoy(), adelantoMeta: ADELANTO_META, radioMarca: RADIO_MARCA, radioSalida: RADIO_SALIDA, factorCalles: FACTOR_CALLES,
+    puntos: st.plan.map(p=>({i:p.i, t:p.t, nombre:p.nombre, lat:p.lat, lon:p.lon, salida:p.salida, vuelta:p.vuelta})),
+  });
+}
+function alternarNativo(){
+  if(st.sim) pararSim();
+  if(app.activo()){ app.detener(); }
+  else { app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
+  leerMotor();
+}
+function leerMotor(){
+  if(!app || st.sim) return;
+  let e; try{ e = JSON.parse(app.estado()); }catch(err){ return; }
+  st.nativo = !!e.activo;
+  $("btnGps").textContent = st.nativo ? "Detener GPS" : "Iniciar GPS";
+  if(st.nativo){
+    st.pos = e.lat!=null ? {lat:e.lat, lon:e.lon} : null;
+    st.vel = e.vel;
+    if(e.marcas){ st.marcas = e.marcas; guardarMarcas(); }
+    if(typeof e.idx==="number") st.idx = e.idx;
+    estadoGps(e.gps==="live"?"live":e.gps==="err"?"err":"", e.gpsTxt || "GPS del motor de Android");
+  }
+}
+
+/* =====================================================================
+   11. MODO PRUEBA
+   ===================================================================== */
+function iniciarSim(){
+  if(st.sim){ pararSim(); return; }
+  if(st.gpsWatch!=null){ navigator.geolocation.clearWatch(st.gpsWatch); st.gpsWatch=null; }
+  if(st.nativo) app.detener();
+  st.nativo = false;
+  st.simMarcas = {}; st.ultimoEstado = ""; st.cerca = null;
+  const v0 = st.plan[st.idx].vuelta;
+  const vuelta = st.plan.filter(p=>p.vuelta===v0);
+  st.idx = vuelta[0].i;
+  st.simT = vuelta[0].t - 90000;
+  st.sim = setInterval(()=>{
+    st.simT += 30000;
+    const atraso = -2 + 2.5*Math.sin(st.simT/400000);
+    const tEf = st.simT - atraso*60000;
+    let j = vuelta.findIndex(p=>p.t > tEf); if(j<1) j = j<0 ? vuelta.length-1 : 1;
+    const a = vuelta[j-1], b = vuelta[j];
+    const f = Math.min(1, Math.max(0,(tEf-a.t)/(b.t-a.t)));
+    const prev = st.pos;
+    st.pos = {lat:a.lat+(b.lat-a.lat)*f, lon:a.lon+(b.lon-a.lon)*f};
+    st.vel = prev ? distancia(prev,st.pos)*FACTOR_CALLES/30 : 0;
+    estadoGps("live","Modo prueba (reloj acelerado)");
+    revisarLlegada(); pintar(); pintarDia();
+    const ultima = vuelta[vuelta.length-1];
+    if(st.simMarcas[ultima.i]!=null){
+      clearInterval(st.sim); st.sim = "fin"; st.idx = ultima.i;
+      estadoGps("","Prueba terminada"); $("btnSim").textContent = "Salir de la prueba"; pintar();
+    }
+  }, 250);
+  $("btnSim").textContent = "Parar prueba"; $("btnSim").classList.add("on");
+}
+function pararSim(){
+  clearInterval(st.sim); st.sim=null; st.pos=null; st.vel=null; st.cerca=null;
+  $("btnSim").textContent="Modo prueba"; $("btnSim").classList.remove("on");
+  estadoGps("","GPS apagado"); ubicarIdx(); pintar(); pintarDia();
+}
+
+/* =====================================================================
+   12. PREGUNTA DEL DÍA
+   ===================================================================== */
+const ultimaCfg = leer("r29-ultima") || {punto:"cana", hora:"05:55", planilla:12, vueltas:7};
+let puntoElegido = ultimaCfg.punto;
+for(let n=1;n<=TOTAL_PLANILLAS;n++){ $("inPlanilla").add(new Option(`Planilla ${n}`, n)); $("pllSel").add(new Option(`Planilla ${n}`, n)); }
+for(let n=1;n<=10;n++) $("inVueltas").add(new Option(`${n} vuelta${n>1?"s":""}`, n));
+function elegirPunto(p){
+  puntoElegido = p;
+  $("optCana").setAttribute("aria-pressed", p==="cana");
+  $("optPalmas").setAttribute("aria-pressed", p==="palmas");
+  $("lblHora").textContent = p==="cana" ? "Hora de la planilla en el Polideportivo" : "Hora de la planilla en Palmas";
+  $("helpHora").textContent = p==="cana"
+    ? "Es la primera hora de tu planilla. La app pone la salida de Caña Brava 10 minutos antes."
+    : "Sales de Palmas a esa misma hora, sin adelanto.";
+  previsualizar();
+}
+function leerFormulario(){
+  return {fecha:hoy(), punto:puntoElegido, hora:$("inHora").value || "05:55", planilla:+$("inPlanilla").value, vueltas:+$("inVueltas").value};
+}
+function previsualizar(){
+  const c = leerFormulario(), pl = armarHorario(c);
+  const sal = pl[0], fin = pl[pl.length-1];
+  $("setupPreview").innerHTML = `Arrancas de <b>${sal.nombre}</b> a las <b>${fmt(sal.t)}</b> y terminas en <b>${fin.nombre}</b> a las <b>${fmt(fin.t)}</b>. Son <b>${pl.filter(p=>!p.salida).length}</b> marcas en el día.`;
+}
+function mostrarSetup(){
+  $("inHora").value = (st.cfg||ultimaCfg).hora;
+  $("inPlanilla").value = (st.cfg||ultimaCfg).planilla;
+  $("inVueltas").value = (st.cfg||ultimaCfg).vueltas;
+  elegirPunto((st.cfg||ultimaCfg).punto);
+  $("setup").hidden = false; $("tabs").hidden = true;
+  ["tabRuta","tabPlanillas","tabDia"].forEach(t=> $(t).hidden = true);
+}
+$("optCana").onclick = ()=>elegirPunto("cana");
+$("optPalmas").onclick = ()=>elegirPunto("palmas");
+["inHora","inPlanilla","inVueltas"].forEach(id=> $(id).addEventListener("input", previsualizar));
+$("btnSetupOk").onclick = ()=>{
+  const c = leerFormulario();
+  const cambio = st.cfg && (st.cfg.punto!==c.punto || st.cfg.hora!==c.hora || st.cfg.vueltas!==c.vueltas);
+  st.cfg = c; guardar("r29-config", c); guardar("r29-ultima", c);
+  if(cambio){ st.marcas = {}; guardarMarcas(); }
+  st.plan = armarHorario(c); ubicarIdx();
+  if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
+  $("setup").hidden = true; $("tabs").hidden = false;
+  $("pllSel").value = c.planilla;
+  irA("Ruta");
+};
+$("btnChangeSetup").onclick = mostrarSetup;
+
+/* =====================================================================
+   13. PESTAÑAS Y BOTONES
+   ===================================================================== */
+function irA(tab){
+  ["Ruta","Planillas","Dia"].forEach(t=>{
+    $("tab"+t).hidden = t!==tab;
+    document.querySelector(`[data-tab="${t}"]`).setAttribute("aria-current", t===tab ? "page" : "false");
+  });
+  if(tab==="Ruta") pintar();
+  if(tab==="Planillas") pintarPlanillas();
+  if(tab==="Dia") pintarDia();
+  window.scrollTo(0,0);
+}
+document.querySelectorAll("[data-tab]").forEach(b=> b.onclick = ()=>irA(b.dataset.tab));
+$("pllSel").onchange = pintarPlanillas;
+$("pllMenos").onclick = ()=>{ const s=$("pllSel"); if(+s.value>1){ s.value=+s.value-1; pintarPlanillas(); } };
+$("pllMas").onclick = ()=>{ const s=$("pllSel"); if(+s.value<TOTAL_PLANILLAS){ s.value=+s.value+1; pintarPlanillas(); } };
+$("btnGps").onclick = iniciarGps;
+$("btnSim").onclick = iniciarSim;
+$("btnMark").onclick = ()=>marcar();
+$("btnPrev").onclick = anterior;
+$("btnVoice").onclick = ()=>{
+  st.voz = !st.voz; $("btnVoice").classList.toggle("on", st.voz);
+  $("btnVoice").textContent = st.voz ? "🔊 Voz" : "🔈 Voz";
+  guardar("r29-voz", st.voz);
+  if(app) app.voz(st.voz);
+  if(st.voz){ st.ultimaVoz=0; hablar("Voz activada. Te voy avisando cómo vas de tiempo.", true); }
+};
+
+/* =====================================================================
+   14. INSTALAR / ACTUALIZAR
+   ===================================================================== */
+if(app){
+  // Dentro de la app de Android: no hace falta instalar; revisar si hay versión nueva
+  let v = 0; try{ v = app.version(); }catch(e){}
+  if(v < ULTIMA_APK) $("updateBox").hidden = false;
+  $("btnUpdate").onclick = ()=> app.abrirEnlace(URL_APK);
+  $("btnBattery").hidden = false;
+  $("btnBattery").onclick = ()=> app.pedirBateria();
+} else {
+  const comoApp = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  if(!comoApp && !leer("r29-instalada")) $("installBox").hidden = false;
+  let pedido = null;
+  window.addEventListener("beforeinstallprompt", e=>{ e.preventDefault(); pedido=e; $("installHelp").hidden=true; $("btnInstall").hidden=false; });
+  $("btnInstall").onclick = async ()=>{ if(!pedido) return; pedido.prompt(); const r = await pedido.userChoice; pedido=null; if(r.outcome==="accepted") instalada(); };
+  const instalada = ()=>{ $("installBox").hidden = true; guardar("r29-instalada", true); };
+  window.addEventListener("appinstalled", instalada);
+  $("installHide").onclick = instalada;
+  if("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
+}
+
+/* =====================================================================
+   ARRANQUE
+   ===================================================================== */
+cargarDia();
+st.voz = !!leer("r29-voz");
+if(st.voz){ $("btnVoice").classList.add("on"); $("btnVoice").textContent="🔊 Voz"; }
+if(app) leerMotor();
+if(st.cfg){ $("tabs").hidden=false; $("pllSel").value = st.cfg.planilla; irA("Ruta"); }
+else mostrarSetup();
+setInterval(()=>{
+  if(st.sim) return;
+  if(st.cfg && st.cfg.fecha!==hoy()){ st.cfg=null; mostrarSetup(); return; } // día nuevo: volver a preguntar
+  if(app) leerMotor();
+  if(!$("tabRuta").hidden) pintar();
+  else if(!$("tabDia").hidden) pintarDia();
+  else $("clock").textContent = fmt(Date.now());
+}, app ? 1000 : 5000);
+</script>
+</body>
+</html>

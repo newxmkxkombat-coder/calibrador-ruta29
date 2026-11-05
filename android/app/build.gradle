@@ -1,0 +1,53 @@
+plugins {
+    id "com.android.application"
+}
+
+// La llave para firmar la app vive fuera del repositorio (firma.properties no se sube a GitHub)
+def firma = new Properties()
+def archivoFirma = rootProject.file("firma.properties")
+if (archivoFirma.exists()) firma.load(new FileInputStream(archivoFirma))
+
+android {
+    namespace "co.ruta29.calibrador"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "co.ruta29.calibrador"
+        minSdk 24
+        targetSdk 35
+        versionCode 1          // súbelo en 1 cada vez que cambie el motor
+        versionName "1.0"
+    }
+
+    signingConfigs {
+        release {
+            if (archivoFirma.exists()) {
+                storeFile rootProject.file(firma["archivo"])
+                storePassword firma["clave"]
+                keyAlias firma["alias"]
+                keyPassword firma["clave"]
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

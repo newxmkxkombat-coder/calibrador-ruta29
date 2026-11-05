@@ -1,0 +1,7 @@
+# Archivos que NO se suben a GitHub
+.gradle/
+build/
+app/build/
+local.properties
+firma.properties
+*.jks
