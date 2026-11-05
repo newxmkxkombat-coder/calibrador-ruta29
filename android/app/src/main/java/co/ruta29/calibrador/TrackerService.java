@@ -158,7 +158,7 @@ public class TrackerService extends Service implements LocationListener {
         if (lm == null) {
             lm = (LocationManager) getSystemService(LOCATION_SERVICE);
             try {
-                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 0, this, Looper.getMainLooper());
+                lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0, this, Looper.getMainLooper()); // cada segundo
             } catch (Exception e) {
                 synchronized (candado) { gps = "err"; gpsTxt = "No se pudo usar el GPS"; }
             }

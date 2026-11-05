@@ -362,7 +362,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 2; // versión más nueva de la app de Android
+const ULTIMA_APK = 3; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -681,8 +681,12 @@ function pintarCompas(P){
     box.appendChild(el);
   });
 }
+let clavePlanilla = "";
 function pintarPlanilla(){
   const P = st.plan[st.idx], marcas = marcasActuales();
+  const clave = `${P.vuelta}|${st.idx}|${Object.keys(marcas).length}|${st.sim?1:0}|${st.plan.length}|${P.t}`;
+  if(clave === clavePlanilla) return;   // nada cambió: no redibujar
+  clavePlanilla = clave;
   const vuelta = st.plan.filter(p => p.vuelta===P.vuelta);
   $("sheetTitle").textContent = `Vuelta ${P.vuelta}`;
   $("sheetSub").textContent = `${fmt(vuelta[0].t)} → ${fmt(vuelta[vuelta.length-1].t)}`;
@@ -698,9 +702,13 @@ function pintarPlanilla(){
 }
 
 /* ---------- Pestaña "Mi día" ---------- */
+let claveDia = "";
 function pintarDia(){
   if(!st.cfg) return;
   const marcas = marcasActuales();
+  const clave = `${Object.keys(marcas).length}|${st.sim?1:0}|${st.cfg.hora}|${st.cfg.punto}`;
+  if(clave === claveDia) return;
+  claveDia = clave;
   $("dayDate").textContent = st.sim ? "prueba (no se guarda)" : new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"});
   $("daySetupTxt").innerHTML = `Arrancaste desde <b>${st.cfg.punto==="cana"?"Caña Brava":"Palmas"}</b>, planilla <b>${st.cfg.planilla}</b>, primera marca <b>${st.cfg.hora}</b>, <b>${st.cfg.vueltas}</b> vueltas.`;
   const vueltas = [...new Set(st.plan.map(p=>p.vuelta))].filter(v => st.plan.some(p=>p.vuelta===v && marcas[p.i]!=null));
@@ -778,7 +786,7 @@ function iniciarGps(){
     estadoGps("live",`GPS activo · precisión ${Math.round(p.coords.accuracy)} m`);
     revisarLlegada(); pintar(); pintarMapa();
   }, e=> estadoGps("err", e.code===1 ? "Permiso de ubicación negado: actívalo en los ajustes de Chrome" : "No hay señal de GPS"),
-  {enableHighAccuracy:true, maximumAge:2000, timeout:15000});
+  {enableHighAccuracy:true, maximumAge:0, timeout:15000});
   $("btnGps").textContent = "Detener GPS";
   pantallaEncendida();
 }
@@ -817,7 +825,10 @@ function leerMotor(){
   if(st.nativo){
     st.pos = e.lat!=null ? {lat:e.lat, lon:e.lon} : null;
     st.vel = e.vel;
-    if(e.marcas){ st.marcas = e.marcas; guardarMarcas(); }
+    if(e.marcas){
+      const nuevas = JSON.stringify(e.marcas);
+      if(nuevas !== st.marcasTxt){ st.marcasTxt = nuevas; st.marcas = e.marcas; guardarMarcas(); }
+    }
     if(typeof e.idx==="number") st.idx = e.idx;
     if(app.traza && typeof e.nTraza==="number"){
       if(e.nTraza < st.trazaMotor) st.trazaMotor = 0;
@@ -873,13 +884,16 @@ function pararSim(){
    11b. EL MAPA
    Usa Leaflet (una librería gratis de mapas) con los mapas de OpenStreetMap.
    ===================================================================== */
-const M = {mapa:null, ruta:null, traza:null, yo:null, proximo:null, seguir:true};
+const M = {mapa:null, ruta:null, traza:null, yo:null, proximo:null, seguir:true,
+  // Para que el punto se deslice suave (como un GPS de carro) en vez de saltar:
+  desde:null, hacia:null, t0:0, dur:1000, animando:false,
+  trazaDibujada:0, rutaDibujada:null, claveVueltas:null};
 function abrirMapa(){
   if(!window.L){ $("mapInfo").textContent = "No cargó el mapa. Revisa tu conexión a internet."; return; }
   if(!M.mapa){
-    M.mapa = L.map("mapa", {zoomControl:true, attributionControl:true}).setView([2.943,-75.27], 14);
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:"© OpenStreetMap"}).addTo(M.mapa);
-    // Puntos de control con su nombre
+    // preferCanvas: dibuja las líneas en un solo lienzo, mucho más rápido en celular
+    M.mapa = L.map("mapa", {zoomControl:true, attributionControl:true, preferCanvas:true, inertia:true}).setView([2.943,-75.27], 14);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:"© OpenStreetMap", keepBuffer:4, updateWhenIdle:false}).addTo(M.mapa);
     Object.values(PUNTOS).forEach(P=>{
       L.circleMarker([P.lat,P.lon], {radius:7, color:"#ffffff", weight:2, fillColor:"#15181a", fillOpacity:1})
         .bindTooltip(P.nombre, {permanent:true, direction:"top", offset:[0,-6], className:"pc"}).addTo(M.mapa);
@@ -891,7 +905,8 @@ function abrirMapa(){
     M.mapa.on("dragstart", ()=>{ M.seguir = false; $("btnSeguir").classList.remove("on"); });
     verTodo();
   }
-  setTimeout(()=> M.mapa.invalidateSize(), 50); // el mapa necesita saber su tamaño al mostrarse
+  setTimeout(()=> M.mapa.invalidateSize(), 50);
+  M.trazaDibujada = 0; M.rutaDibujada = null; M.claveVueltas = null; // redibujar todo una vez al abrir
   pintarMapa(); pintarPanelRuta();
 }
 function verTodo(){
@@ -900,26 +915,56 @@ function verTodo(){
   if(st.ruta) st.ruta.pts.forEach(q=>pts.push([q[0],q[1]]));
   M.mapa.fitBounds(L.latLngBounds(pts).pad(0.08));
 }
-let vueltasVistas = -1;
+// Se llama cada vez que llega una posición nueva: arranca el deslizamiento hacia ella
+function moverYo(lat, lon){
+  if(!M.mapa || $("tabMapa").hidden) return;
+  const ahoraMs = performance.now();
+  const actual = M.hacia ? posAnimada(ahoraMs) : [lat, lon];
+  M.dur = M.hacia ? Math.min(2500, Math.max(400, ahoraMs - M.t0)) : 0; // dura lo mismo que tardó en llegar el dato
+  M.desde = actual; M.hacia = [lat, lon]; M.t0 = ahoraMs;
+  if(!M.mapa.hasLayer(M.yo)) M.yo.addTo(M.mapa);
+  if(!M.animando){ M.animando = true; requestAnimationFrame(cuadro); }
+}
+function posAnimada(t){
+  if(!M.dur) return M.hacia;
+  const f = Math.min(1, (t - M.t0)/M.dur);
+  return [M.desde[0] + (M.hacia[0]-M.desde[0])*f, M.desde[1] + (M.hacia[1]-M.desde[1])*f];
+}
+// Un "cuadro" de la animación (unas 60 veces por segundo, como un video)
+function cuadro(t){
+  if(!M.mapa || $("tabMapa").hidden || !M.hacia){ M.animando = false; return; }
+  const p = posAnimada(t);
+  M.yo.setLatLng(p);
+  if(M.seguir) M.mapa.setView(p, M.mapa.getZoom() < 16 ? 16 : M.mapa.getZoom(), {animate:false, noMoveStart:true});
+  if(t - M.t0 < M.dur) requestAnimationFrame(cuadro); else M.animando = false;
+}
 function pintarMapa(){
   if(!M.mapa || $("tabMapa").hidden) return;
-  const nv = vueltasCompletas().length;               // si terminó una vuelta, refrescar la lista
-  if(nv !== vueltasVistas){ vueltasVistas = nv; pintarPanelRuta(); }
-  M.ruta.setLatLngs(st.ruta ? st.ruta.pts.map(q=>[q[0],q[1]]) : []);
-  M.traza.setLatLngs(trazaActual().map(q=>[q[0],q[1]]));
+  // Lista de vueltas para "guardar ruta": solo se recalcula si cambiaron las marcas
+  const clave = Object.keys(marcasActuales()).length + "|" + (st.sim?1:0);
+  if(clave !== M.claveVueltas){ M.claveVueltas = clave; pintarPanelRuta(); }
+  // La ruta guardada solo se redibuja si cambió
+  if(M.rutaDibujada !== st.ruta){ M.rutaDibujada = st.ruta; M.ruta.setLatLngs(st.ruta ? st.ruta.pts.map(q=>[q[0],q[1]]) : []); }
+  // El recorrido: solo se agregan los puntos nuevos (no se redibuja todo)
+  const T = trazaActual();
+  if(T.length < M.trazaDibujada){ M.traza.setLatLngs([]); M.trazaDibujada = 0; }
+  for(let i=M.trazaDibujada; i<T.length; i++) M.traza.addLatLng([T[i][0], T[i][1]]);
+  M.trazaDibujada = T.length;
   if(st.cfg){ const P = st.plan[st.idx]; M.proximo.setLatLng([P.lat,P.lon]); }
   if(st.pos){
-    M.yo.setLatLng([st.pos.lat, st.pos.lon]);
-    if(!M.mapa.hasLayer(M.yo)) M.yo.addTo(M.mapa);
-    if(M.seguir) M.mapa.setView([st.pos.lat, st.pos.lon], Math.max(M.mapa.getZoom(), 16), {animate:false});
+    if(!M.hacia || M.hacia[0]!==st.pos.lat || M.hacia[1]!==st.pos.lon) moverYo(st.pos.lat, st.pos.lon);
     const P = st.plan[st.idx];
-    $("mapInfo").textContent = `Vas hacia ${P.nombre} (${fmt(P.t)}) · ${trazaActual().length} puntos grabados hoy`;
+    $("mapInfo").textContent = `Vas hacia ${P.nombre} (${fmt(P.t)})` + (st.vel!=null ? ` · ${Math.round(st.vel*3.6)} km/h` : "");
   } else {
+    M.hacia = null;
     if(M.mapa.hasLayer(M.yo)) M.mapa.removeLayer(M.yo);
     $("mapInfo").textContent = "Enciende el GPS para verte en el mapa.";
   }
 }
-$("btnSeguir").onclick = ()=>{ M.seguir = !M.seguir; $("btnSeguir").classList.toggle("on", M.seguir); pintarMapa(); };
+$("btnSeguir").onclick = ()=>{
+  M.seguir = !M.seguir; $("btnSeguir").classList.toggle("on", M.seguir);
+  if(M.seguir && st.pos) M.mapa.setView([st.pos.lat, st.pos.lon], Math.max(M.mapa.getZoom(), 16));
+};
 $("btnVerTodo").onclick = ()=>{ M.seguir = false; $("btnSeguir").classList.remove("on"); verTodo(); };
 
 /* ---------- Guardar una vuelta grabada como "mi ruta" ---------- */
@@ -1140,7 +1185,7 @@ setInterval(()=>{
   else if(!$("tabDia").hidden) pintarDia();
   else if(!$("tabMapa").hidden) pintarMapa();
   else $("clock").textContent = fmt(Date.now());
-}, app ? 1000 : 5000);
+}, app ? 500 : 3000);
 </script>
 </body>
 </html>
