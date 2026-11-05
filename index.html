@@ -396,6 +396,13 @@ const RUTA_BASE = null; // aquí puedo dejar fija la ruta oficial cuando me la m
 function aXY(lat, lon){ // convierte grados a metros (plano pequeño, sirve para una ciudad)
   return [(lon - (-75.28))*Math.cos(2.94*Math.PI/180)*111320, (lat - 2.94)*110574];
 }
+function aLatLon(x, y){ return [y/110574 + 2.94, x/(Math.cos(2.94*Math.PI/180)*111320) - 75.28]; }
+// El punto que está en el metro "s" de la ruta
+function puntoEnRuta(R, s){
+  let i = 1; while(i < R.cum.length-1 && R.cum[i] < s) i++;
+  const L = R.cum[i]-R.cum[i-1] || 1, f = Math.max(0, Math.min(1, (s-R.cum[i-1])/L));
+  return aLatLon(R.xy[i-1][0] + (R.xy[i][0]-R.xy[i-1][0])*f, R.xy[i-1][1] + (R.xy[i][1]-R.xy[i-1][1])*f);
+}
 function prepararRuta(pts){
   if(!pts || pts.length < 20) return null;
   const xy = pts.map(p=>aXY(p[0],p[1])), cum=[0];
@@ -906,6 +913,7 @@ function abrirMapa(){
     verTodo();
   }
   setTimeout(()=> M.mapa.invalidateSize(), 50);
+  cargarCalles().then(()=>{ M.ultimaPos = null; pintarMapa(); });
   M.trazaDibujada = 0; M.rutaDibujada = null; M.claveVueltas = null; // redibujar todo una vez al abrir
   pintarMapa(); pintarPanelRuta();
 }
@@ -915,6 +923,82 @@ function verTodo(){
   if(st.ruta) st.ruta.pts.forEach(q=>pts.push([q[0],q[1]]));
   M.mapa.fitBounds(L.latLngBounds(pts).pad(0.08));
 }
+/* ---------- Pegar el punto a la calle (como Waze o Google Maps) ----------
+   El GPS en ciudad se corre 5 a 20 metros. Si estás cerca de una calle,
+   te dibujamos SOBRE la calle. Primero intenta con tu ruta grabada
+   (tu camino real) y si no, con las calles de Neiva de OpenStreetMap. */
+const CALLES = {ax:null, ay:null, bx:null, by:null, rejilla:null, estado:"sin cargar"};
+const CELDA = 80; // la ciudad se divide en cuadritos de 80 m para buscar rápido
+const SERVIDORES_CALLES = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
+const CONSULTA_CALLES = '[out:json][timeout:90];way["highway"~"^(trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|trunk_link|primary_link|secondary_link|tertiary_link)$"](2.915,-75.31,2.97,-75.23);out geom;';
+function indexarCalles(ways){
+  const ax=[], ay=[], bx=[], by=[], rej = new Map();
+  ways.forEach(w=>{
+    for(let i=1;i<w.length;i++){
+      const [x1,y1] = aXY(w[i-1][0], w[i-1][1]), [x2,y2] = aXY(w[i][0], w[i][1]);
+      const n = ax.length; ax.push(x1); ay.push(y1); bx.push(x2); by.push(y2);
+      // anotar el tramo en cada cuadrito que toca
+      const c1x=Math.floor(Math.min(x1,x2)/CELDA), c2x=Math.floor(Math.max(x1,x2)/CELDA);
+      const c1y=Math.floor(Math.min(y1,y2)/CELDA), c2y=Math.floor(Math.max(y1,y2)/CELDA);
+      for(let cx=c1x; cx<=c2x; cx++) for(let cy=c1y; cy<=c2y; cy++){
+        const k = cx+","+cy; let l = rej.get(k); if(!l){ l=[]; rej.set(k,l); } l.push(n);
+      }
+    }
+  });
+  Object.assign(CALLES, {ax, ay, bx, by, rejilla:rej, estado:"lista"});
+}
+async function cargarCalles(){
+  if(CALLES.estado==="lista" || CALLES.estado==="cargando") return;
+  CALLES.estado = "cargando";
+  const llave = new Request("calles-neiva-v1.json");
+  // 1) ¿Ya las tenemos guardadas en el celular?
+  try{
+    const c = await caches.open("r29-calles"), r = await c.match(llave);
+    if(r){ indexarCalles(await r.json()); return; }
+  }catch(e){}
+  // 2) Descargarlas una sola vez de OpenStreetMap
+  for(const url of SERVIDORES_CALLES){
+    try{
+      const ctrl = new AbortController(), reloj = setTimeout(()=>ctrl.abort(), 90000);
+      const r = await fetch(url, {method:"POST", body:"data="+encodeURIComponent(CONSULTA_CALLES),
+        headers:{"Content-Type":"application/x-www-form-urlencoded"}, signal:ctrl.signal});
+      clearTimeout(reloj);
+      if(!r.ok) continue;
+      const d = await r.json();
+      const ways = d.elements.filter(e=>e.geometry).map(e=>e.geometry.map(g=>[+g.lat.toFixed(6), +g.lon.toFixed(6)]));
+      if(ways.length < 50) continue;
+      indexarCalles(ways);
+      try{ const c = await caches.open("r29-calles"); await c.put(llave, new Response(JSON.stringify(ways))); }catch(e){}
+      return;
+    }catch(e){}
+  }
+  CALLES.estado = "error";
+}
+function pegarACalle(lat, lon){
+  // 1) Tu ruta grabada: si estás a menos de 35 m, te pone sobre ella
+  if(st.ruta){
+    const q = proyectar(st.ruta, lat, lon);
+    if(q && q.d < 35) return puntoEnRuta(st.ruta, q.s);
+  }
+  // 2) Las calles de Neiva: la más cercana a menos de 25 m
+  if(CALLES.estado==="lista"){
+    const [px,py] = aXY(lat,lon), cx=Math.floor(px/CELDA), cy=Math.floor(py/CELDA);
+    let mejor=null, vistos=new Set();
+    for(let dx=-1;dx<=1;dx++) for(let dy=-1;dy<=1;dy++){
+      const l = CALLES.rejilla.get((cx+dx)+","+(cy+dy)); if(!l) continue;
+      for(const n of l){
+        if(vistos.has(n)) continue; vistos.add(n);
+        const ax=CALLES.ax[n], ay=CALLES.ay[n], vx=CALLES.bx[n]-ax, vy=CALLES.by[n]-ay, L2=vx*vx+vy*vy;
+        const f = L2 ? Math.max(0,Math.min(1,((px-ax)*vx+(py-ay)*vy)/L2)) : 0;
+        const x = ax+f*vx, y = ay+f*vy, d = Math.hypot(px-x, py-y);
+        if(!mejor || d<mejor.d) mejor = {d, x, y};
+      }
+    }
+    if(mejor && mejor.d < 25) return aLatLon(mejor.x, mejor.y);
+  }
+  return [lat, lon]; // lejos de toda calle: se deja como dice el GPS
+}
+
 // Se llama cada vez que llega una posición nueva: arranca el deslizamiento hacia ella
 function moverYo(lat, lon){
   if(!M.mapa || $("tabMapa").hidden) return;
@@ -952,9 +1036,12 @@ function pintarMapa(){
   M.trazaDibujada = T.length;
   if(st.cfg){ const P = st.plan[st.idx]; M.proximo.setLatLng([P.lat,P.lon]); }
   if(st.pos){
-    if(!M.hacia || M.hacia[0]!==st.pos.lat || M.hacia[1]!==st.pos.lon) moverYo(st.pos.lat, st.pos.lon);
+    // Solo cuando llega una posición distinta (si no, el punto avanzaría a tirones)
+    const clavePos = st.pos.lat + "," + st.pos.lon;
+    if(clavePos !== M.ultimaPos){ M.ultimaPos = clavePos; const q = pegarACalle(st.pos.lat, st.pos.lon); moverYo(q[0], q[1]); }
     const P = st.plan[st.idx];
-    $("mapInfo").textContent = `Vas hacia ${P.nombre} (${fmt(P.t)})` + (st.vel!=null ? ` · ${Math.round(st.vel*3.6)} km/h` : "");
+    $("mapInfo").textContent = `Vas hacia ${P.nombre} (${fmt(P.t)})` + (st.vel!=null ? ` · ${Math.round(st.vel*3.6)} km/h` : "")
+      + ({lista:" · pegado a la calle ✓", cargando:" · bajando calles…", error:" · sin calles (revisa internet)"}[CALLES.estado] || "");
   } else {
     M.hacia = null;
     if(M.mapa.hasLayer(M.yo)) M.mapa.removeLayer(M.yo);
