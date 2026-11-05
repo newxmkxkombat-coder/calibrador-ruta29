@@ -161,6 +161,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void abrirEnlace(String url) {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
         }
+        // ¿El celular deja trabajar la app sin restricciones de batería?
+        @JavascriptInterface public boolean bateriaLibre() {
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            return pm == null || pm.isIgnoringBatteryOptimizations(getPackageName());
+        }
         @SuppressLint("BatteryLife")
         @JavascriptInterface public void pedirBateria() {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);

@@ -205,6 +205,10 @@ button.brujula.on .brujula-txt{background:#1e6fd9;color:#fff}
 .apr td.mas{color:var(--bad);font-weight:700} .apr td.menos{color:var(--ok);font-weight:700}
 .apr td:first-child{font-family:var(--f-body);font-size:13px;white-space:normal;line-height:1.25;min-width:0;width:44%}
 .apr{table-layout:fixed}
+.aviso-bateria{display:flex;align-items:center;gap:12px;background:var(--warn-bg);border:1px solid var(--warn);border-radius:14px;padding:12px 14px}
+.aviso-bateria div{flex:1;min-width:0}
+.aviso-bateria b{display:block;font-size:16px}
+.aviso-bateria span{display:block;font-size:14px;color:var(--muted)}
 /* ---------- Panel de control ---------- */
 .panel-ctrl{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px}
 .btn-gps{font-size:19px;font-weight:700;padding:16px;border-radius:12px}
@@ -248,6 +252,8 @@ details.plegable[open] summary{border-bottom:1px solid var(--line)}
 .opciones button{text-align:left;padding:13px 14px;font-size:16px}
 .opciones button small{display:block;font-size:13px;color:var(--muted);font-weight:500;margin-top:2px}
 .opciones button.fin small{color:inherit;opacity:.8}
+.opc-select{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;font-weight:600;font-size:16px}
+.opc-select select{padding:8px 10px;font-size:15px}
 
 /* ---------- Mis rutas ---------- */
 .rutas{display:flex;flex-direction:column}
@@ -339,6 +345,12 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
       <button class="link" id="installHide" style="align-self:flex-start">Ya la instalé, no mostrar más</button>
     </section>
 
+    <!-- Aviso: el celular puede dormir la app con la pantalla apagada -->
+    <section class="aviso-bateria" id="avisoBateria" hidden>
+      <div><b>⚠️ Tu celular puede dormir la app</b><span>Con la pantalla apagada podría dejar de hablar y de marcar.</span></div>
+      <button class="primary" id="btnArreglarBateria">Arreglar</button>
+    </section>
+
     <!-- PANEL DE CONTROL -->
     <section class="panel-ctrl">
       <button class="primary btn-gps" id="btnGps">Iniciar GPS</button>
@@ -400,8 +412,15 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
     <details class="card plegable">
       <summary><span>⚙️ Más opciones</span><span class="sum-sub">prueba, batería, terminar</span></summary>
       <div class="opciones">
+        <label class="opc-select" for="selVozCada">🔊 La voz me avisa cada
+          <select id="selVozCada">
+            <option value="1">1 minuto</option>
+            <option value="2">2 minutos</option>
+            <option value="3">3 minutos</option>
+          </select>
+        </label>
         <button id="btnSim">🧪 Modo prueba <small>Simula una vuelta para ver cómo funciona</small></button>
-        <button id="btnBattery" hidden>🔋 Que el celular no cierre la app <small>Permiso de batería de Android</small></button>
+        <button id="btnBattery" hidden>🔋 Que el celular no duerma la app <small>Importante para que hable y marque con la pantalla apagada. Escoge “Sin restricciones” o “Permitir en segundo plano”.</small></button>
         <button class="fin" id="btnTerminar">🏁 Terminar el día <small>Apaga el GPS; ya no marca más puntos</small></button>
       </div>
     </details>
@@ -558,7 +577,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 12; // versión más nueva de la app de Android
+const ULTIMA_APK = 13; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -997,10 +1016,12 @@ function anterior(){
 /* =====================================================================
    7. VOZ (en el navegador; en la app de Android habla el motor nativo)
    ===================================================================== */
+// Cada cuánto habla la voz (1, 2 o 3 minutos). Por defecto: cada minuto.
+function vozCada(){ return (leer("r29-vozcada") || 1) * 60000; }
 function hablar(txt, forzar=false){
   if(st.nativo || !st.voz || !("speechSynthesis" in window)) return;
   const t = Date.now();
-  if(!forzar && t - st.ultimaVoz < 60000) return;
+  if(!forzar && t - st.ultimaVoz < vozCada()) return;
   st.ultimaVoz = t;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(txt); u.lang="es-CO"; u.rate=1.05;
@@ -1290,6 +1311,7 @@ document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState=
 function planParaMotor(){
   return JSON.stringify({
     fecha: hoy(), adelantoMeta: ADELANTO_META, radioMarca: RADIO_MARCA, radioSalida: RADIO_SALIDA, factorCalles: FACTOR_CALLES,
+    vozCada: vozCada(),
     puntos: st.plan.map((p,j)=>{
       const o = {i:p.i, t:p.t, nombre:p.nombre, lat:p.lat, lon:p.lon, salida:p.salida, vuelta:p.vuelta};
       const A = st.plan[j-1];
@@ -1931,6 +1953,11 @@ $("btnSim").onclick = iniciarSim;
 $("btnMark").onclick = ()=>marcar();
 
 $("btnPrev").onclick = anterior;
+$("selVozCada").value = String(leer("r29-vozcada") || 1);
+$("selVozCada").onchange = ()=>{
+  guardar("r29-vozcada", +$("selVozCada").value);
+  if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); } // el motor toma el cambio
+};
 $("btnVoice").onclick = ()=>{
   st.voz = !st.voz; $("btnVoice").setAttribute("aria-checked", st.voz);
   guardar("r29-voz", st.voz);
@@ -1948,6 +1975,11 @@ if(app){
   $("updateBox").onclick = ()=> app.abrirEnlace(URL_APK);
   $("btnBattery").hidden = false;
   $("btnBattery").onclick = ()=> app.pedirBateria();
+  $("btnArreglarBateria").onclick = ()=> app.pedirBateria();
+  // Revisar cada vez que vuelves a la app (por si ya lo arreglaste)
+  const revisarBateria = ()=>{ try{ $("avisoBateria").hidden = !app.bateriaLibre || app.bateriaLibre(); }catch(e){} };
+  revisarBateria();
+  document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") revisarBateria(); });
 } else {
   const comoApp = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
   if(!comoApp && !leer("r29-instalada")) $("installBox").hidden = false;

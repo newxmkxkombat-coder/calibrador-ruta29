@@ -67,6 +67,9 @@ public class TrackerService extends Service implements LocationListener {
     private boolean avisoUnMinuto = false, avisoSalga = false;
     private double cercaD = -1; private long cercaT = 0;
     private boolean porUbicar = false; // al prender el GPS: calcular en qué tramo voy
+    private long vozCada = 60000;      // cada cuánto habla (lo escoges en la app: 1, 2 o 3 min)
+    private long ultimaLectura = 0;    // hora de la última posición del GPS
+    private boolean avisoSinGps = false;
 
     // Recorrido del día (por dónde ha pasado), para dibujarlo en el mapa
     private static final java.util.ArrayList<double[]> traza = new java.util.ArrayList<>();
@@ -111,6 +114,7 @@ public class TrackerService extends Service implements LocationListener {
             puntos = o.getJSONArray("puntos");
             fecha = o.optString("fecha");
             adelantoMeta = o.optDouble("adelantoMeta", 2.5);
+            vozCada = o.optLong("vozCada", 60000);
             radioMarca = o.optDouble("radioMarca", 70);
             radioSalida = o.optDouble("radioSalida", 120);
             factorCalles = o.optDouble("factorCalles", 1.3);
@@ -187,6 +191,8 @@ public class TrackerService extends Service implements LocationListener {
     // ================= GPS =================
     @Override
     public void onLocationChanged(Location l) {
+        ultimaLectura = System.currentTimeMillis();
+        if (avisoSinGps) { avisoSinGps = false; hablar("Volvió la señal del GPS.", true); }
         synchronized (candado) {
             lat = l.getLatitude(); lon = l.getLongitude();
             vel = l.hasSpeed() ? (double) l.getSpeed() : null;
@@ -254,7 +260,15 @@ public class TrackerService extends Service implements LocationListener {
             if (!activo) return;
             String hoy = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
             if (fecha != null && !fecha.isEmpty() && !fecha.equals(hoy)) { detener(); return; }
-            actualizar(false);
+            long sinGps = ultimaLectura > 0 ? System.currentTimeMillis() - ultimaLectura : 0;
+            if (sinGps > 30000) {
+                synchronized (candado) { gps = "err"; gpsTxt = "Sin señal de GPS hace " + (sinGps / 1000) + " s"; }
+                if (!avisoSinGps) { avisoSinGps = true; hablar("Se perdió la señal del GPS.", true); }
+                notificar("Sin GPS", "bad", "Hace " + (sinGps / 1000) + " segundos no llega la ubicación",
+                        "Si pasa con la pantalla apagada, revisa en la app: Más opciones, batería." + ultimoTexto());
+            } else {
+                actualizar(false);
+            }
             h.postDelayed(this, 5000);
         }
     };
@@ -426,7 +440,7 @@ public class TrackerService extends Service implements LocationListener {
             ultimoEstado = estadoVoz;
         } else if (riesgo && ahora - ultimaVoz > 90000) { // en riesgo, repetir cada minuto y medio
             hablar(msg, true);
-        } else if (!riesgo && ahora - ultimaVoz > 120000) { // un aviso cada 2 minutos
+        } else if (!riesgo && ahora - ultimaVoz >= vozCada) { // un aviso cada 1, 2 o 3 minutos (lo escoges en la app)
             hablar(textoMin(delta) + " para " + nombre + ".", false);
         }
     }
@@ -452,7 +466,7 @@ public class TrackerService extends Service implements LocationListener {
     private void hablar(String txt, boolean forzar) {
         if (!voz || !ttsListo || tts == null) return;
         long ahora = System.currentTimeMillis();
-        if (!forzar && ahora - ultimaVoz < 60000) return;
+        if (!forzar && ahora - ultimaVoz < Math.min(60000, vozCada)) return;
         ultimaVoz = ahora;
         tts.speak(txt, TextToSpeech.QUEUE_FLUSH, null, "r29");
     }
