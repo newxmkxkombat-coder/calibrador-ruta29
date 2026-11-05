@@ -32,6 +32,7 @@
   --ok-bg:#12321f; --warn-bg:#3a2a0b; --bad-bg:#3d1513; color-scheme:dark}
 
 *{box-sizing:border-box}
+[hidden]{display:none!important} /* lo que esté "escondido" nunca se muestra */
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
@@ -67,7 +68,12 @@ button:focus-visible,select:focus-visible{outline:3px solid var(--accent);outlin
 button.primary{background:var(--accent);border-color:var(--accent);color:#15181a}
 button.on{border-color:var(--ok);color:var(--ok)}
 .controls .grow{flex:1 1 140px}
-#btnInstall{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.install{background:var(--panel);border:2px dashed var(--accent);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.install b{font-family:var(--f-display);font-size:20px;display:block}
+.install span,.install p{color:var(--muted);font-size:14px;line-height:1.4;margin:0}
+.install p b{font-family:var(--f-body);font-size:14px;display:inline;color:var(--ink)}
+#btnInstall{font-size:18px;padding:14px}
+button.link{background:none;border:0;padding:4px 0;color:var(--muted);text-decoration:underline;font-weight:500;font-size:14px;align-self:flex-start}
 
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
 .card h2{margin:0;padding:12px 16px;font-family:var(--f-display);font-size:20px;font-weight:700;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
@@ -115,7 +121,12 @@ tr.cur td:first-child{color:var(--accent);font-weight:700}
     <div class="clock" id="clock">--:--</div>
   </header>
 
-  <button id="btnInstall" hidden>📲 Instalar como app</button>
+  <section id="installBox" class="install" hidden>
+    <div><b>Instala la app en tu pantalla</b><span>Así la abres con un toque, como cualquier aplicación.</span></div>
+    <button id="btnInstall" class="primary" hidden>📲 Instalar</button>
+    <p id="installHelp">Toca los 3 puntitos (⋮) de Chrome y escoge <b>“Instalar app”</b> o <b>“Agregar a la pantalla principal”</b>. Si no aparece, búscalo dentro de <b>“Compartir…”</b>.</p>
+    <button id="installHide" class="link">Ya la instalé, no mostrar más</button>
+  </section>
 
   <section class="status" id="status">
     <div class="lbl" id="statusLbl">Estado</div>
@@ -482,10 +493,25 @@ $("btnVoice").onclick = ()=>{
 };
 
 /* ========= 13. INSTALAR COMO APP ========= */
+// ¿Ya está abierta como app instalada? Entonces no se muestra nada.
+const comoApp = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+let yaInstalada = false; try{ yaInstalada = localStorage.getItem("calibrador-instalada")==="si"; }catch(e){}
 let pedidoInstalar = null;
-window.addEventListener("beforeinstallprompt", e=>{ e.preventDefault(); pedidoInstalar = e; $("btnInstall").hidden = false; });
-$("btnInstall").onclick = async ()=>{ if(!pedidoInstalar) return; pedidoInstalar.prompt(); await pedidoInstalar.userChoice; pedidoInstalar=null; $("btnInstall").hidden = true; };
-window.addEventListener("appinstalled", ()=>{ $("btnInstall").hidden = true; });
+const aviso = $("installBox");
+if(!comoApp && !yaInstalada) aviso.hidden = false; // se muestra hasta que la instales
+window.addEventListener("beforeinstallprompt", e=>{
+  e.preventDefault(); pedidoInstalar = e;      // Chrome nos dio permiso de pedir la instalación
+  $("installHelp").hidden = true; $("btnInstall").hidden = false;
+});
+$("btnInstall").onclick = async ()=>{
+  if(!pedidoInstalar) return;
+  pedidoInstalar.prompt();                      // abre la ventanita de Chrome "¿Instalar?"
+  const r = await pedidoInstalar.userChoice; pedidoInstalar = null;
+  if(r.outcome==="accepted") instalada();
+};
+function instalada(){ aviso.hidden = true; try{ localStorage.setItem("calibrador-instalada","si"); }catch(e){} }
+window.addEventListener("appinstalled", instalada);
+$("installHide").onclick = instalada;           // "Ya la instalé": no volver a mostrar
 if("serviceWorker" in navigator && location.protocol==="https:"){
   navigator.serviceWorker.register("sw.js").catch(()=>{});
 }

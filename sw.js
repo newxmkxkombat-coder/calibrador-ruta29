@@ -1,6 +1,6 @@
 // "Service worker": un ayudante que guarda la app en el celular
 // para que abra rápido y funcione aunque la señal de internet esté mala.
-const CACHE = "calibrador-v2";
+const CACHE = "calibrador-v3";
 const ARCHIVOS = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable.png"];
 
 self.addEventListener("install", e => {
