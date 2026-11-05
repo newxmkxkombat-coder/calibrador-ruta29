@@ -1,0 +1,381 @@
+<title>Calibrador Ruta 29</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/* Layout: una sola columna tipo tablero de bus — reloj grande arriba, el estado (adelanto/atraso) como protagonista, la planilla de la vuelta abajo. */
+:root{
+  --bg:#eef0ea; --panel:#ffffff; --ink:#15181a; --muted:#5d6560; --line:#d4d8d0;
+  --accent:#e5a100; /* amarillo de bus */
+  --ok:#1f8a4c; --warn:#c77700; --bad:#c62828;
+  --ok-bg:#dff1e5; --warn-bg:#fbeccf; --bad-bg:#fbdedc;
+  --f-display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111413; --panel:#1b1f1d; --ink:#f1f3ee; --muted:#9aa39d; --line:#2d332f;
+  --accent:#ffbf1f; --ok:#3ccf7a; --warn:#ffb020; --bad:#ff5a4f;
+  --ok-bg:#12321f; --warn-bg:#3a2a0b; --bad-bg:#3d1513; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111413; --panel:#1b1f1d; --ink:#f1f3ee; --muted:#9aa39d; --line:#2d332f;
+  --accent:#ffbf1f; --ok:#3ccf7a; --warn:#ffb020; --bad:#ff5a4f;
+  --ok-bg:#12321f; --warn-bg:#3a2a0b; --bad-bg:#3d1513; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:12px 28px}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+
+header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.route{background:var(--accent);color:#15181a;font-family:var(--f-display);font-weight:800;font-size:22px;
+  padding:2px 10px;border-radius:6px;letter-spacing:.02em}
+.brand small{display:block;color:var(--muted);font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+.brand b{font-family:var(--f-display);font-size:20px;font-weight:700}
+.clock{font-family:var(--f-mono);font-weight:700;font-size:28px;font-variant-numeric:tabular-nums}
+
+.status{border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:6px;background:var(--panel);border:2px solid var(--line)}
+.status.ok{background:var(--ok-bg);border-color:var(--ok)}
+.status.warn{background:var(--warn-bg);border-color:var(--warn)}
+.status.bad{background:var(--bad-bg);border-color:var(--bad)}
+.status .lbl{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.status .big{font-family:var(--f-display);font-weight:800;font-size:clamp(52px,17vw,84px);line-height:.95;font-variant-numeric:tabular-nums}
+.status.ok .big{color:var(--ok)} .status.warn .big{color:var(--warn)} .status.bad .big{color:var(--bad)}
+.status .msg{font-size:19px;font-weight:600;text-wrap:balance}
+
+.next{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:end}
+.next .lbl{grid-column:1/-1;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.next .name{font-family:var(--f-display);font-size:30px;font-weight:700;line-height:1.05;min-width:0}
+.next .time{font-family:var(--f-mono);font-size:30px;font-weight:700;color:var(--accent)}
+.facts{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 16px;color:var(--muted);font-size:15px;margin-top:6px}
+.facts b{color:var(--ink);font-family:var(--f-mono);font-weight:500}
+
+.controls{display:flex;flex-wrap:wrap;gap:8px}
+button,select{font:inherit;font-weight:600;font-size:15px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:11px 14px;cursor:pointer}
+button:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#15181a}
+button.on{border-color:var(--ok);color:var(--ok)}
+.controls .grow{flex:1 1 140px}
+
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.sheet h2{margin:0;padding:12px 16px;font-family:var(--f-display);font-size:20px;font-weight:700;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px}
+.sheet h2 span{color:var(--muted);font-family:var(--f-body);font-size:14px;font-weight:500;align-self:center}
+ol{list-style:none;margin:0;padding:0}
+li{display:grid;grid-template-columns:22px 1fr auto auto;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
+li:last-child{border-bottom:0}
+li .dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--muted)}
+li.done .dot{background:var(--ok);border-color:var(--ok)}
+li.late .dot{background:var(--bad);border-color:var(--bad)}
+li.cur{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+li.cur .dot{border-color:var(--accent);background:var(--accent)}
+li .pt{min-width:0}
+li .pt small{color:var(--muted);display:block;font-size:12px}
+li .sched{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+li .real{font-family:var(--f-mono);font-size:13px;min-width:62px;text-align:right;color:var(--muted)}
+li.done .real{color:var(--ok)} li.late .real{color:var(--bad)}
+
+.note{color:var(--muted);font-size:14px;line-height:1.45}
+.gps{font-size:13px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.gps i{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block}
+.gps.live i{background:var(--ok)} .gps.err i{background:var(--bad)}
+@media (prefers-reduced-motion:no-preference){.status{transition:background .4s,border-color .4s}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <span class="route">29</span>
+      <div><small>Calibrador · Neiva</small><b id="vueltaTitle">Vuelta</b></div>
+    </div>
+    <div class="clock" id="clock">--:--</div>
+  </header>
+
+  <section class="status" id="status">
+    <div class="lbl" id="statusLbl">Estado</div>
+    <div class="big" id="statusBig">—</div>
+    <div class="msg" id="statusMsg">Toca “Iniciar GPS” o prueba el modo simulación.</div>
+  </section>
+
+  <section class="next">
+    <div class="lbl">Próximo punto de control</div>
+    <div class="name" id="nextName">—</div>
+    <div class="time" id="nextTime">--:--</div>
+    <div class="facts">
+      <span>Faltan <b id="fDist">—</b></span>
+      <span>Tiempo <b id="fLeft">—</b></span>
+      <span>Vas a <b id="fSpeed">—</b></span>
+      <span>Necesitas <b id="fNeed">—</b></span>
+    </div>
+  </section>
+
+  <div class="controls">
+    <button class="primary grow" id="btnGps">Iniciar GPS</button>
+    <button class="grow" id="btnSim">Modo prueba</button>
+    <button id="btnVoice">🔈 Voz</button>
+  </div>
+  <div class="controls">
+    <select id="selVuelta" class="grow" aria-label="Vuelta"></select>
+    <button id="btnPrev" aria-label="Punto anterior">◀</button>
+    <button id="btnMark">Ya marqué</button>
+  </div>
+  <div class="gps" id="gpsState"><i></i><span>GPS apagado</span></div>
+
+  <section class="sheet">
+    <h2>Planilla de la vuelta <span id="sheetSub"></span></h2>
+    <ol id="sheet"></ol>
+  </section>
+
+  <p class="note">Meta: pasar por cada punto con 2 a 3 minutos de adelanto. Verde = vas bien, amarillo = cuidado, rojo = te estás colgando. La distancia es aproximada (línea recta × 1,3 por las calles).</p>
+</div>
+
+<script>
+/* ========= 1. DATOS DE LA RUTA ========= */
+// Cada punto de control con su ubicación GPS (latitud, longitud)
+const PUNTOS = {
+  llegada: {nombre:"Llegada / salida", lat:2.9603658, lon:-75.2733307},
+  poli:    {nombre:"Polideportivo",    lat:2.9560771, lon:-75.2841492},
+  vegas:   {nombre:"Las Vegas",        lat:2.9379439, lon:-75.2959266},
+  caldo:   {nombre:"Caldo Parao",      lat:2.9276988, lon:-75.2865874},
+  antonio: {nombre:"Antonio Nariño",   lat:2.9402976, lon:-75.2579156},
+  palmas:  {nombre:"Palmas",           lat:2.9454504, lon:-75.2420411},
+};
+// Orden de la vuelta y minutos después de la primera marca (igual en todas las vueltas)
+const RECORRIDO = [
+  {id:"llegada", min:-10, salida:true}, // arrancas 10 min antes
+  {id:"poli",    min:0},
+  {id:"vegas",   min:13},
+  {id:"caldo",   min:30},
+  {id:"antonio", min:44},
+  {id:"palmas",  min:55},
+  {id:"antonio", min:64},
+  {id:"caldo",   min:81},
+  {id:"vegas",   min:91},
+  {id:"llegada", min:109},
+];
+// Hora de la primera marca de cada vuelta (planilla del día)
+const VUELTAS = ["05:55","08:00","10:05","12:10","14:15","16:20","18:25"];
+const ADELANTO_META = 2.5;   // minutos de adelanto ideales
+const RADIO_MARCA = 70;      // metros: si estás así de cerca, cuenta como "pasaste"
+const FACTOR_CALLES = 1.3;   // la calle es más larga que la línea recta
+
+/* ========= 2. ESTADO (lo que la app recuerda mientras está abierta) ========= */
+const st = {
+  vuelta: 0, idx: 1,            // vuelta elegida y punto al que vas
+  pos: null, vel: null,         // tu posición y velocidad (m/s)
+  marcas: {},                   // hora real a la que pasaste cada punto
+  gpsWatch: null, sim: null, simT: 0,
+  voz: false, ultimaVoz: 0, ultimoEstado: "",
+};
+
+/* ========= 3. AYUDANTES ========= */
+const $ = id => document.getElementById(id);
+const ahora = () => st.sim ? st.simT : Date.now();
+function horaAFecha(hhmm, extraMin=0){ // "08:00" -> fecha de hoy a esa hora
+  const [h,m] = hhmm.split(":").map(Number);
+  const d = new Date(); d.setHours(h,m,0,0);
+  return d.getTime() + extraMin*60000;
+}
+const fmt = t => new Date(t).toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit",hour12:false});
+function distancia(a,b){ // fórmula de Haversine: metros entre dos puntos GPS
+  const R=6371000, r=x=>x*Math.PI/180;
+  const dLat=r(b.lat-a.lat), dLon=r(b.lon-a.lon);
+  const h=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+const horaPunto = (v,i) => horaAFecha(VUELTAS[v], RECORRIDO[i].min);
+const punto = i => PUNTOS[RECORRIDO[i].id];
+
+/* ========= 4. EL CÁLCULO PRINCIPAL: ¿voy bien o mal? ========= */
+function calcular(){
+  const t = ahora(), i = st.idx;
+  const meta = horaPunto(st.vuelta, i);
+  const r = {meta, minRestantes:(meta - t)/60000};
+  if(!st.pos) return r;
+  const dist = distancia(st.pos, punto(i)) * FACTOR_CALLES;
+  r.dist = dist;
+  // ¿Qué velocidad necesitas para llegar con el adelanto ideal?
+  const minParaMeta = r.minRestantes - ADELANTO_META;
+  r.velNecesaria = minParaMeta > 0 ? (dist/1000)/(minParaMeta/60) : Infinity;
+  // Comparación por "avance": dónde deberías ir vs dónde vas
+  const ant = i>0 ? i-1 : 0;
+  const tramo = Math.max(1, distancia(punto(ant), punto(i)) * FACTOR_CALLES);
+  const minTramo = RECORRIDO[i].min - RECORRIDO[ant].min || 10;
+  const inicio = horaPunto(st.vuelta, ant);
+  const avanceDebido = Math.min(1, Math.max(0, (t - inicio)/(minTramo*60000)));
+  const avanceReal = Math.min(1, Math.max(0, 1 - dist/tramo));
+  // Positivo = vas adelantado, negativo = vas atrasado (en minutos)
+  r.delta = (avanceReal - avanceDebido)*minTramo;
+  // Si ya pasó la hora y no has llegado, el atraso es al menos ese tiempo
+  if(r.minRestantes < 0) r.delta = Math.min(r.delta, r.minRestantes);
+  return r;
+}
+
+/* ========= 5. DETECTAR QUE PASASTE POR UN PUNTO ========= */
+function revisarLlegada(){
+  if(!st.pos || st.idx >= RECORRIDO.length) return;
+  if(distancia(st.pos, punto(st.idx)) <= RADIO_MARCA){
+    marcar();
+  }
+}
+function marcar(){
+  const i = st.idx, t = ahora();
+  st.marcas[i] = t;
+  const dif = (horaPunto(st.vuelta,i) - t)/60000;
+  if(!RECORRIDO[i].salida){
+    hablar(`Marcaste ${punto(i).nombre} con ${textoMin(dif)}.`, true);
+  }
+  if(i < RECORRIDO.length-1){ st.idx++; }
+  else { // terminó la vuelta: pasa a la siguiente
+    if(st.vuelta < VUELTAS.length-1){ st.vuelta++; st.idx = 0; st.marcas = {}; $("selVuelta").value = st.vuelta; }
+  }
+  pintar();
+}
+function textoMin(m){
+  const a = Math.abs(m), n = a<1 ? `${Math.round(a*60)} segundos` : `${a.toFixed(1).replace(".0","")} minutos`;
+  return m >= 0 ? `${n} de adelanto` : `${n} de atraso`;
+}
+
+/* ========= 6. VOZ ========= */
+function hablar(txt, forzar=false){
+  if(!st.voz || !("speechSynthesis" in window)) return;
+  const t = Date.now();
+  if(!forzar && t - st.ultimaVoz < 60000) return; // máximo un aviso por minuto
+  st.ultimaVoz = t;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(txt); u.lang = "es-CO"; u.rate = 1.05;
+  speechSynthesis.speak(u);
+}
+
+/* ========= 7. PINTAR LA PANTALLA ========= */
+function pintar(){
+  const t = ahora();
+  $("clock").textContent = fmt(t);
+  $("vueltaTitle").textContent = `Vuelta ${st.vuelta+1} · ${VUELTAS[st.vuelta]}`;
+  const p = punto(st.idx), r = calcular();
+  $("nextName").textContent = RECORRIDO[st.idx].salida ? "Salida (arranque)" : p.nombre;
+  $("nextTime").textContent = fmt(r.meta);
+  $("fLeft").textContent = r.minRestantes >= 0 ? `${Math.floor(r.minRestantes)}:${String(Math.floor((r.minRestantes%1)*60)).padStart(2,"0")}` : "pasó";
+  $("fDist").textContent = r.dist!=null ? (r.dist>=1000 ? (r.dist/1000).toFixed(1)+" km" : Math.round(r.dist)+" m") : "—";
+  $("fSpeed").textContent = st.vel!=null ? Math.round(st.vel*3.6)+" km/h" : "—";
+  $("fNeed").textContent = r.velNecesaria==null ? "—" : isFinite(r.velNecesaria) ? Math.round(r.velNecesaria)+" km/h" : "¡ya!";
+
+  const box = $("status");
+  if(RECORRIDO[st.idx].salida){
+    box.className = "status " + (r.minRestantes > 1 ? "ok" : r.minRestantes > 0 ? "warn" : "bad");
+    $("statusLbl").textContent = "Arranque";
+    $("statusBig").textContent = r.minRestantes>0 ? `${Math.ceil(r.minRestantes)} min` : "¡Salga!";
+    $("statusMsg").textContent = r.minRestantes>0 ? `Sales a las ${fmt(r.meta)} (10 min antes del Polideportivo).` : "Ya es hora de arrancar.";
+    if(r.minRestantes<=1 && r.minRestantes>0) hablar("Prepárate, en un minuto arrancas.");
+  } else if(r.delta==null){
+    box.className = "status";
+    $("statusLbl").textContent = "Estado";
+    $("statusBig").textContent = "—";
+    $("statusMsg").textContent = "Esperando señal de GPS…";
+  } else {
+    const d = r.delta;
+    let cls, msg;
+    if(d < 0){ cls="bad"; msg="Vas atrasado. Dale un poquito más."; }
+    else if(d < 1.5){ cls="warn"; msg="Vas justo. Mantén el ritmo o apura un poco."; }
+    else if(d <= 4){ cls="ok"; msg="Vas bien de tiempo."; }
+    else { cls="warn"; msg="Vas muy adelantado. Puedes bajar el ritmo."; }
+    box.className = "status " + cls;
+    $("statusLbl").textContent = d>=0 ? "Adelanto" : "Atraso";
+    $("statusBig").textContent = (d>=0?"+":"−") + Math.abs(d).toFixed(1) + " min";
+    $("statusMsg").textContent = msg;
+    if(cls !== st.ultimoEstado){ hablar(`${msg} ${textoMin(d)} para ${p.nombre}.`, cls==="bad"); st.ultimoEstado = cls; }
+    else hablar(`${textoMin(d)} para ${p.nombre}.`);
+  }
+  pintarPlanilla();
+}
+function pintarPlanilla(){
+  const ol = $("sheet"); ol.innerHTML = "";
+  RECORRIDO.forEach((r,i)=>{
+    const li = document.createElement("li");
+    const meta = horaPunto(st.vuelta,i), real = st.marcas[i];
+    if(real!=null) li.className = real <= meta ? "done" : "late";
+    if(i===st.idx) li.className = "cur";
+    const nombre = r.salida ? "Salida" : PUNTOS[r.id].nombre;
+    const sub = r.salida ? "10 min antes" : (i===RECORRIDO.length-1 ? "llegada" : (i<=5 ? "ida" : "regreso"));
+    let realTxt = "";
+    if(real!=null){ const m=(meta-real)/60000; realTxt = (m>=0?"+":"−")+Math.abs(m).toFixed(1); }
+    li.innerHTML = `<span class="dot"></span><span class="pt"></span><span class="sched">${fmt(meta)}</span><span class="real">${realTxt}</span>`;
+    li.querySelector(".pt").innerHTML = `${nombre}<small>${sub}</small>`;
+    ol.appendChild(li);
+  });
+  $("sheetSub").textContent = `${fmt(horaPunto(st.vuelta,0))} → ${fmt(horaPunto(st.vuelta,RECORRIDO.length-1))}`;
+}
+
+/* ========= 8. GPS REAL ========= */
+function iniciarGps(){
+  if(st.sim) pararSim();
+  if(!("geolocation" in navigator)){ estadoGps("err","Este navegador no tiene GPS"); return; }
+  if(st.gpsWatch!=null){ navigator.geolocation.clearWatch(st.gpsWatch); st.gpsWatch=null; estadoGps("","GPS apagado"); $("btnGps").textContent="Iniciar GPS"; return; }
+  estadoGps("","Buscando señal…");
+  st.gpsWatch = navigator.geolocation.watchPosition(p=>{
+    const nueva = {lat:p.coords.latitude, lon:p.coords.longitude};
+    if(p.coords.speed!=null) st.vel = p.coords.speed;
+    st.pos = nueva;
+    estadoGps("live",`GPS activo · precisión ${Math.round(p.coords.accuracy)} m`);
+    revisarLlegada(); pintar();
+  }, e=>{
+    estadoGps("err", e.code===1 ? "Permiso de ubicación negado" : "No hay señal de GPS");
+  }, {enableHighAccuracy:true, maximumAge:2000, timeout:15000});
+  $("btnGps").textContent = "Detener GPS";
+  pantallaEncendida();
+}
+function estadoGps(cls, txt){ const g=$("gpsState"); g.className="gps "+cls; g.querySelector("span").textContent=txt; }
+async function pantallaEncendida(){ try{ await navigator.wakeLock?.request("screen"); }catch(e){} }
+
+/* ========= 9. MODO PRUEBA (simula el bus andando la ruta) ========= */
+function iniciarSim(){
+  if(st.sim){ pararSim(); return; }
+  if(st.gpsWatch!=null){ navigator.geolocation.clearWatch(st.gpsWatch); st.gpsWatch=null; $("btnGps").textContent="Iniciar GPS"; }
+  st.idx = 0; st.marcas = {}; st.ultimoEstado="";
+  st.simT = horaPunto(st.vuelta,0) - 90000; // 1,5 min antes de la salida
+  st.sim = setInterval(()=>{
+    st.simT += 20000; // cada paso = 20 segundos de "reloj falso"
+    // El bus simulado va con unos 2 min de adelanto, con algo de variación (trancón)
+    const atraso = -2 + 2.5*Math.sin(st.simT/400000);
+    const tEf = st.simT - atraso*60000;
+    let i=1; while(i<RECORRIDO.length-1 && horaPunto(st.vuelta,i) < tEf) i++;
+    const a=punto(i-1), b=punto(i), t0=horaPunto(st.vuelta,i-1), t1=horaPunto(st.vuelta,i);
+    const f = Math.min(1, Math.max(0,(tEf-t0)/(t1-t0)));
+    const prev = st.pos;
+    st.pos = {lat:a.lat+(b.lat-a.lat)*f, lon:a.lon+(b.lon-a.lon)*f};
+    st.vel = prev ? distancia(prev,st.pos)*FACTOR_CALLES/20 : 0;
+    estadoGps("live","Modo prueba (reloj acelerado)");
+    revisarLlegada(); pintar();
+    if(st.idx===0 && st.vuelta>0 && Object.keys(st.marcas).length===0 && st.simT > horaPunto(st.vuelta-1, RECORRIDO.length-1)+600000) pararSim();
+  }, 500);
+  $("btnSim").textContent = "Parar prueba"; $("btnSim").classList.add("on");
+}
+function pararSim(){ clearInterval(st.sim); st.sim=null; st.pos=null; st.vel=null; $("btnSim").textContent="Modo prueba"; $("btnSim").classList.remove("on"); estadoGps("","GPS apagado"); elegirVueltaAuto(); pintar(); }
+
+/* ========= 10. ELEGIR LA VUELTA SEGÚN LA HORA ========= */
+function elegirVueltaAuto(){
+  const t = Date.now();
+  let v = VUELTAS.findIndex((_,k)=> horaPunto(k,RECORRIDO.length-1) > t);
+  if(v<0) v = VUELTAS.length-1;
+  st.vuelta = v; st.marcas = {};
+  // ¿En qué punto debería ir según la hora?
+  let i = RECORRIDO.findIndex((_,k)=> horaPunto(v,k) > t);
+  st.idx = i<0 ? RECORRIDO.length-1 : i;
+  $("selVuelta").value = v;
+}
+
+/* ========= 11. BOTONES ========= */
+VUELTAS.forEach((h,k)=>{ const o=document.createElement("option"); o.value=k; o.textContent=`Vuelta ${k+1} · ${h}`; $("selVuelta").appendChild(o); });
+$("selVuelta").onchange = e=>{ st.vuelta=+e.target.value; st.idx=0; st.marcas={}; st.ultimoEstado=""; pintar(); };
+$("btnGps").onclick = iniciarGps;
+$("btnSim").onclick = iniciarSim;
+$("btnMark").onclick = marcar;
+$("btnPrev").onclick = ()=>{ if(st.idx>0){ st.idx--; delete st.marcas[st.idx]; pintar(); } };
+$("btnVoice").onclick = ()=>{
+  st.voz = !st.voz; $("btnVoice").classList.toggle("on", st.voz);
+  $("btnVoice").textContent = st.voz ? "🔊 Voz" : "🔈 Voz";
+  if(st.voz){ st.ultimaVoz=0; hablar("Voz activada. Te voy avisando cómo vas de tiempo.", true); }
+};
+
+elegirVueltaAuto(); pintar();
+setInterval(()=>{ if(!st.sim) pintar(); }, 5000); // refresca el reloj cada 5 segundos
+</script>
