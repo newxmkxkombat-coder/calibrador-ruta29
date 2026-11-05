@@ -66,6 +66,7 @@ public class TrackerService extends Service implements LocationListener {
     private String ultimoEstado = "";
     private boolean avisoUnMinuto = false, avisoSalga = false;
     private double cercaD = -1; private long cercaT = 0;
+    private boolean porUbicar = false; // al prender el GPS: calcular en qué tramo voy
 
     // Recorrido del día (por dónde ha pasado), para dibujarlo en el mapa
     private static final java.util.ArrayList<double[]> traza = new java.util.ArrayList<>();
@@ -163,6 +164,7 @@ public class TrackerService extends Service implements LocationListener {
                 synchronized (candado) { gps = "err"; gpsTxt = "No se pudo usar el GPS"; }
             }
         }
+        porUbicar = true;
         h.removeCallbacks(tic);
         h.post(tic);
     }
@@ -197,8 +199,50 @@ public class TrackerService extends Service implements LocationListener {
                 if (++trazaSinGuardar >= 10) { guardarTraza(); trazaSinGuardar = 0; }
             }
         }
+        if (porUbicar && l.getAccuracy() < 60) { porUbicar = false; ubicarPorPosicion(l.getLatitude(), l.getLongitude()); }
         revisarLlegada();
         actualizar(false);
+    }
+
+    /** Mira la posición y la hora y busca el tramo de la planilla que mejor cuadra (100 m pesan como 5 min). */
+    private void ubicarPorPosicion(double lat, double lon) {
+        if (puntos == null) return;
+        long ahora = System.currentTimeMillis();
+        double px = mx(lon), py = my(lat), mejorPuntaje = Double.MAX_VALUE, mejorF = 0;
+        int mejorJ = -1;
+        for (int j = 1; j < puntos.length(); j++) {
+            JSONObject a = punto(j - 1), p = punto(j);
+            if (a.optInt("vuelta") != p.optInt("vuelta") || p.optBoolean("salida")) continue;
+            if (marcas.has(String.valueOf(p.optInt("i")))) continue;
+            if (a.optLong("t") > ahora + 15 * 60000L || p.optLong("t") < ahora - 25 * 60000L) continue;
+            double d, f;
+            if (rcum != null && p.has("s") && p.has("sAnt")) {
+                double sA = p.optDouble("sAnt"), sP = p.optDouble("s");
+                double[] q = proyectar(lat, lon, sA, sP);
+                if (q == null || sP <= sA) continue;
+                d = q[0]; f = Math.max(0, Math.min(1, (q[1] - sA) / (sP - sA)));
+            } else {
+                double ax = mx(a.optDouble("lon")), ay = my(a.optDouble("lat")), bx = mx(p.optDouble("lon")), by = my(p.optDouble("lat"));
+                double vx = bx - ax, vy = by - ay, L2 = vx * vx + vy * vy;
+                f = L2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / L2)) : 0;
+                d = Math.hypot(px - (ax + f * vx), py - (ay + f * vy)) / factorCalles;
+            }
+            double tEsperado = a.optLong("t") + f * (p.optLong("t") - a.optLong("t"));
+            double puntaje = d / 100 + Math.abs(ahora - tEsperado) / 60000.0 / 5;
+            if (d < 500 && puntaje < mejorPuntaje) { mejorPuntaje = puntaje; mejorJ = j; mejorF = f; }
+        }
+        if (mejorJ < 0) return;
+        JSONObject ant = punto(mejorJ - 1);
+        int j = (mejorF < 0.08 && !marcas.has(String.valueOf(ant.optInt("i")))) ? mejorJ - 1 : mejorJ;
+        int actual; synchronized (candado) { actual = idx; }
+        if (j == actual) return;
+        synchronized (candado) { idx = j; }
+        cercaD = -1; ultimoEstado = "";
+        JSONObject p = punto(j), a2 = j > 0 ? punto(j - 1) : null;
+        if (p.optBoolean("salida")) hablar("Estás en " + p.optString("nombre") + ". Te aviso al arrancar.", true);
+        else if (a2 != null && a2.optInt("vuelta") == p.optInt("vuelta") && !marcas.has(String.valueOf(a2.optInt("i"))))
+            hablar("Ya pasaste " + a2.optString("nombre") + ". Vas para " + p.optString("nombre") + ".", true);
+        else hablar("Vas para " + p.optString("nombre") + ".", true);
     }
     @Override public void onProviderDisabled(String p) { synchronized (candado) { gps = "err"; gpsTxt = "El GPS del celular está apagado"; } }
     @Override public void onProviderEnabled(String p) { synchronized (candado) { gps = "buscando"; gpsTxt = "Buscando señal de GPS…"; } }
@@ -241,7 +285,7 @@ public class TrackerService extends Service implements LocationListener {
             if (p.optBoolean("salida")) {
                 // arrancó: ya se alejó del punto de salida (y ya casi es la hora)
                 if (j == i && d > radioSalida && ahora > p.optLong("t") - 15 * 60000L) { marcarEn(j, ahora); return; }
-                continue;
+                break; // NUNCA mirar más allá de una salida: lo que sigue es la vuelta siguiente
             }
             if (d <= radioMarca) { marcarEn(j, ahora); return; }
             if (j == i && d <= 300) { // plan B: pasó cerca y se está alejando

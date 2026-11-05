@@ -155,8 +155,10 @@ tr.cur td{background:color-mix(in srgb,var(--accent) 12%,var(--panel))}
 /* Mapa */
 #mapa{height:62vh;min-height:320px;width:100%;background:#e8e6e1;position:relative;z-index:0;isolation:isolate} /* el mapa no tapa avisos ni pestañas */
 #mapa[data-tema="noche"]{background:#1b1d22}
-.bus-yo{background:none;border:0}
-.bus-yo svg{display:block;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
+.bus-yo{background:none;border:0;position:relative}
+.bus-flecha{position:absolute;inset:0;transform-origin:50% 50%}
+.bus-flecha svg{display:block}
+.bus-cara{position:absolute;left:14px;top:14px;display:block;filter:drop-shadow(0 2px 4px rgba(0,0,0,.4))}
 button.brujula{position:relative;width:52px;height:60px;padding:0;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:1px;cursor:pointer}
 button.brujula svg{filter:drop-shadow(0 1px 3px rgba(0,0,0,.35))}
 .brujula-txt{font:700 11px var(--f-body);color:#15181a;background:#fff;border-radius:6px;padding:0 5px;box-shadow:0 1px 2px rgba(0,0,0,.25)}
@@ -505,7 +507,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 6; // versión más nueva de la app de Android
+const ULTIMA_APK = 7; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -784,7 +786,7 @@ function revisarLlegada(){
     if(P.salida){
       // arrancó: ya se alejó del punto de salida (y ya casi es la hora)
       if(j===st.idx && d > RADIO_SALIDA && t > P.t - 15*60000){ marcar(undefined, j); return; }
-      continue;
+      break; // NUNCA mirar más allá de una salida: lo que sigue es la vuelta siguiente
     }
     if(d <= RADIO_MARCA){ marcar(undefined, j); return; }
     if(j===st.idx && d <= RADIO_CERCA){             // plan B: pasó cerca y se está alejando
@@ -793,6 +795,46 @@ function revisarLlegada(){
     }
   }
 }
+/* ---------- Al prender el GPS: ¿en qué tramo voy? ----------
+   Mira tu posición y la hora, y busca el tramo de la planilla que mejor cuadra.
+   Así, si prendes el GPS a mitad de camino, sabe qué puntos ya pasaste. */
+function ubicarPorPosicion(){
+  if(!st.pos || !st.plan.length) return false;
+  const t = ahora(), m = marcasActuales();
+  const [px,py] = aXY(st.pos.lat, st.pos.lon);
+  let mejor = null;
+  for(let j=1; j<st.plan.length; j++){
+    const A = st.plan[j-1], P = st.plan[j];
+    if(A.vuelta!==P.vuelta || P.salida || m[P.i]!=null) continue;
+    if(A.t > t + 15*60000 || P.t < t - 25*60000) continue;  // solo tramos de esta hora
+    // ¿A cuántos metros estoy de este tramo y qué tanto llevo recorrido?
+    let d, f;
+    if(st.ruta){
+      const sA = st.ruta.S[A.k], sP = st.ruta.S[P.k], q = proyectar(st.ruta, st.pos.lat, st.pos.lon, sA, sP);
+      if(!q || sP <= sA) continue;
+      d = q.d; f = Math.max(0, Math.min(1, (q.s - sA)/(sP - sA)));
+    } else {
+      const [ax,ay] = aXY(A.lat,A.lon), [bx,by] = aXY(P.lat,P.lon), vx=bx-ax, vy=by-ay, L2=vx*vx+vy*vy;
+      f = L2 ? Math.max(0, Math.min(1, ((px-ax)*vx+(py-ay)*vy)/L2)) : 0;
+      d = Math.hypot(px-(ax+f*vx), py-(ay+f*vy)) / FACTOR_CALLES;   // las calles no van en línea recta
+    }
+    // ¿A qué hora debería ir por aquí? Comparar con la hora real (100 m pesan como 5 minutos)
+    const tEsperado = A.t + f*(P.t - A.t);
+    const puntaje = d/100 + Math.abs(t - tEsperado)/60000/5;
+    if(d < 500 && (!mejor || puntaje < mejor.puntaje)) mejor = {j, f, puntaje, A, P};
+  }
+  if(!mejor) return false;
+  // Si estás prácticamente encima del punto anterior y no está marcado, empezar por ese
+  const j = (mejor.f < 0.08 && m[mejor.A.i]==null) ? mejor.j-1 : mejor.j;
+  if(j !== st.idx){
+    st.idx = j; st.cerca = null; st.ultimoEstado = "";
+    const P = st.plan[j], ant = st.plan[j-1];
+    hablar(P.salida ? `Estás en ${P.nombre}. Te aviso al arrancar.`
+      : (ant && ant.vuelta===P.vuelta && m[ant.i]==null ? `Ya pasaste ${ant.nombre}. Vas para ${P.nombre}.` : `Vas para ${P.nombre}.`), true);
+  }
+  return true;
+}
+
 function marcar(tReal, j){
   if(st.nativo){ app.marcar(); return; }
   if(typeof j==="number") st.idx = j;                 // si se saltó puntos, va directo al que detectó
@@ -1078,9 +1120,11 @@ function iniciarGps(){
   if(!("geolocation" in navigator)){ estadoGps("err","Este navegador no tiene GPS"); return; }
   if(st.gpsWatch!=null){ navigator.geolocation.clearWatch(st.gpsWatch); st.gpsWatch=null; estadoGps("","GPS apagado"); $("btnGps").textContent="Iniciar GPS"; pintar(); return; }
   estadoGps("","Buscando señal…");
+  st.porUbicar = true; // con la primera posición, calcular en qué tramo voy
   st.gpsWatch = navigator.geolocation.watchPosition(p=>{
     st.pos = {lat:p.coords.latitude, lon:p.coords.longitude};
     agregarTraza(st.pos.lat, st.pos.lon, Date.now());
+    if(st.porUbicar && p.coords.accuracy < 60){ st.porUbicar = false; ubicarPorPosicion(); }
     if(p.coords.speed!=null) st.vel = p.coords.speed;
     estadoGps("live",`GPS activo · precisión ${Math.round(p.coords.accuracy)} m`);
     revisarLlegada(); pintar(); pintarMapa();
@@ -1218,17 +1262,26 @@ function ponerTema(){
   $("mapa").dataset.tema = t;
 }
 
-// El bus rojo (dibujado con SVG, visto desde arriba, con la trompa hacia arriba)
-const ICONO_BUS = L.divIcon({className:"bus-yo", iconSize:[34,48], iconAnchor:[17,24], html:`
-  <svg viewBox="0 0 34 48" width="34" height="48" aria-label="Tu bus">
-    <ellipse cx="17" cy="26" rx="15" ry="21" fill="rgba(0,0,0,.25)"/>
-    <rect x="5" y="3" width="24" height="42" rx="7" fill="#e3242b" stroke="#ffffff" stroke-width="2.5"/>
-    <rect x="8.5" y="6.5" width="17" height="8" rx="2.5" fill="#cfe8ff"/>
-    <rect x="9" y="18" width="16" height="3" rx="1.5" fill="#ffffff" opacity=".85"/>
-    <rect x="9" y="24" width="16" height="3" rx="1.5" fill="#ffffff" opacity=".85"/>
-    <rect x="9" y="30" width="16" height="3" rx="1.5" fill="#ffffff" opacity=".85"/>
-    <rect x="9.5" y="38" width="15" height="4" rx="1.5" fill="#8f1016"/>
-    <path d="M17 -2 L22 4 L12 4 Z" fill="#ffffff"/>
+// Tu bus: un colectivo rojo con blanco visto de frente, dentro de un círculo,
+// con una flechita alrededor que apunta hacia donde vas
+const ICONO_BUS = L.divIcon({className:"bus-yo", iconSize:[84,84], iconAnchor:[42,42], html:`
+  <div class="bus-flecha"><svg viewBox="0 0 84 84" width="84" height="84"><path d="M42 2 L53 18 L31 18 Z" fill="#d81f26" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/></svg></div>
+  <svg class="bus-cara" viewBox="0 0 44 44" width="56" height="56" aria-label="Tu bus">
+    <circle cx="22" cy="22" r="20.5" fill="#ffffff" stroke="#d81f26" stroke-width="3"/>
+    <rect x="9.5" y="7.5" width="25" height="27" rx="5" fill="#d81f26"/>
+    <rect x="14" y="9.5" width="16" height="4.6" rx="1.2" fill="#14181c"/>
+    <text x="22" y="13.4" text-anchor="middle" font-family="Arial,sans-serif" font-weight="700" font-size="4.2" fill="#ffc83d">RUTA 29</text>
+    <rect x="11.5" y="15.5" width="21" height="9" rx="1.6" fill="#a9d8ff" stroke="#0d2b45" stroke-width=".8"/>
+    <path d="M22 15.5 V24.5" stroke="#0d2b45" stroke-width=".8"/>
+    <rect x="9.5" y="25.5" width="25" height="4.2" fill="#ffffff"/>
+    <rect x="9.5" y="27" width="25" height="1.2" fill="#d81f26"/>
+    <circle cx="13.6" cy="31.3" r="1.7" fill="#ffd84d" stroke="#8a6d00" stroke-width=".4"/>
+    <circle cx="30.4" cy="31.3" r="1.7" fill="#ffd84d" stroke="#8a6d00" stroke-width=".4"/>
+    <rect x="18.5" y="30.3" width="7" height="2.2" rx=".6" fill="#7a0d12"/>
+    <rect x="11" y="34" width="5" height="3.2" rx="1" fill="#14181c"/>
+    <rect x="28" y="34" width="5" height="3.2" rx="1" fill="#14181c"/>
+    <path d="M9.5 17 h-2.2 v4.5" stroke="#14181c" stroke-width="1.2" fill="none"/>
+    <path d="M34.5 17 h2.2 v4.5" stroke="#14181c" stroke-width="1.2" fill="none"/>
   </svg>`});
 
 // La brújula: tocarla cambia entre "norte arriba" y "de frente al bus"
@@ -1272,7 +1325,7 @@ function abrirMapa(){
     M.ruta = L.polyline([], {color:"#1e6fd9", weight:7, opacity:.5}).addTo(M.mapa);
     M.traza = L.polyline([], {color:"#ff8a00", weight:4, opacity:.95}).addTo(M.mapa);
     M.proximo = L.circleMarker([0,0], {radius:14, color:"#ffbf1f", weight:4, fill:false}).addTo(M.mapa);
-    M.yo = L.marker([0,0], {icon:ICONO_BUS, rotateWithView:true, rotation:0, interactive:false, zIndexOffset:1000, keyboard:false});
+    M.yo = L.marker([0,0], {icon:ICONO_BUS, interactive:false, zIndexOffset:1000, keyboard:false});
     // Si mueves el mapa con el dedo, deja de seguirte para que puedas mirar
     M.mapa.on("dragstart", ()=>{ M.seguir = false; $("btnSeguir").classList.remove("on"); });
     // Mientras haces zoom con los dedos, no peleamos con tu gesto
@@ -1410,7 +1463,9 @@ function cuadro(t){
   // El bus gira suave hacia donde va (el giro se completa en el primer 40% del tramo)
   M.rumbo = (M.rumboDesde + difAng(M.rumboDesde, M.rumboHacia)*Math.min(1, f/0.4) + 360) % 360;
   M.yo.setLatLng(p);
-  M.yo.setRotation(M.rumbo*Math.PI/180);
+  // La flechita apunta hacia donde vas (sumando lo que esté girado el mapa)
+  const flecha = M.yo.getElement() && M.yo.getElement().querySelector(".bus-flecha");
+  if(flecha) flecha.style.transform = `rotate(${(M.rumbo + (M.mapa.getBearing ? M.mapa.getBearing() : 0)) % 360}deg)`;
   if(M.orientar && !M.zoomando) M.mapa.setBearing(-M.rumbo);          // el mapa gira con el bus
   if(M.seguir && !M.zoomando) M.mapa.setView(p, M.mapa.getZoom() < 16 ? 16 : M.mapa.getZoom(), {animate:false, noMoveStart:true});
   if(t - M.t0 < M.dur) requestAnimationFrame(cuadro); else M.animando = false;
