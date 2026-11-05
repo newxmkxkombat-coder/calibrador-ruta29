@@ -129,6 +129,15 @@ public class MainActivity extends Activity {
         @JavascriptInterface public boolean activo() { return TrackerService.activo; }
         @JavascriptInterface public String estado() { return TrackerService.estadoJson(); }
         @JavascriptInterface public String traza(int desde) { return TrackerService.trazaJson(desde); }
+        // Mientras el GPS está prendido, la app se ve encima de la pantalla de bloqueo
+        // (como Google Maps al navegar). Para salir a otras apps igual pide la clave.
+        @JavascriptInterface public void sobreBloqueo(boolean on) {
+            runOnUiThread(() -> {
+                if (Build.VERSION.SDK_INT >= 27) setShowWhenLocked(on);
+                else if (on) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+                else getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
+            });
+        }
         @JavascriptInterface public void pantallaEncendida(boolean on) {
             runOnUiThread(() -> {
                 if (on) getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
