@@ -386,6 +386,12 @@ public class TrackerService extends Service implements LocationListener {
         double minTramo = Math.max(1, (p.optLong("t") - a.optLong("t")) / 60000.0);
         double debido = Math.min(1, Math.max(0, (ahora - a.optLong("t")) / (minTramo * 60000)));
         if (real < 0) real = Math.min(1, Math.max(0, 1 - dist / tramo));
+        // Tu ritmo aprendido dentro del tramo (curvas, semáforos): convierte "parte del camino" en "parte del tiempo"
+        JSONArray perfil = p.optJSONArray("perfil");
+        if (perfil != null && perfil.length() == 11 && rcum != null) {
+            double x = Math.max(0, Math.min(1, real)) * 10; int b = Math.min(9, (int) Math.floor(x));
+            real = perfil.optDouble(b) + (perfil.optDouble(b + 1) - perfil.optDouble(b)) * (x - b);
+        }
         double delta = (real - debido) * minTramo;
         if (minRest < 0) delta = Math.min(delta, minRest);
 

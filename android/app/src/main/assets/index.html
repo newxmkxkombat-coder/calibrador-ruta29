@@ -249,6 +249,26 @@ details.plegable[open] summary{border-bottom:1px solid var(--line)}
 .opciones button small{display:block;font-size:13px;color:var(--muted);font-weight:500;margin-top:2px}
 .opciones button.fin small{color:inherit;opacity:.8}
 
+/* ---------- Mis rutas ---------- */
+.rutas{display:flex;flex-direction:column}
+.ruta-item{display:grid;grid-template-columns:1fr auto;gap:8px 10px;align-items:center;padding:12px 16px;border-top:1px solid var(--line)}
+.ruta-item.activa{background:color-mix(in srgb,var(--brand) 8%,var(--panel))}
+.ruta-item b{display:block;font-size:17px}
+.ruta-item small{display:block;color:var(--muted);font-size:13px}
+.ruta-item .botones{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}
+.ruta-item .botones button{padding:9px 12px;font-size:15px}
+.ruta-item .en-uso{border-color:var(--ok);color:var(--ok);background:var(--ok-bg)}
+.ruta-item .borrar{color:var(--bad)}
+.grabando{display:flex;flex-direction:column;gap:8px;margin:0 16px 12px;padding:12px;border:2px solid var(--bad);border-radius:12px;background:var(--bad-bg)}
+.grabando label{font-size:14px;font-weight:600;color:var(--muted)}
+.grab-titulo{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.grab-titulo span:last-child{color:var(--muted);font-size:14px}
+.rec{width:12px;height:12px;border-radius:50%;background:var(--bad)}
+@media (prefers-reduced-motion:no-preference){.rec{animation:parpadeo2 1s steps(2) infinite}}
+@keyframes parpadeo2{50%{opacity:.2}}
+details.sub-opc{padding:0 16px 12px}
+details.sub-opc summary{cursor:pointer;color:var(--brand);font-weight:600;font-size:15px;padding:6px 0}
+details.sub-opc .ruta-btns{padding:6px 0 0}
 /* Terminar el día */
 button.fin{border:2px solid var(--bad);color:var(--bad);background:var(--panel);font-size:16px;padding:13px}
 .modal{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;justify-content:center;
@@ -439,13 +459,30 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
       </div>
     </section>
     <section class="card">
-      <h2>Mi ruta <span id="rutaEstado"></span></h2>
+      <h2>Mis rutas <span id="rutasCuenta">0 de 5</span></h2>
       <div class="empty" id="rutaTxt"></div>
-      <div class="ruta-btns">
-        <select id="selVueltaRuta" aria-label="Vuelta para guardar como ruta"></select>
-        <button class="primary" id="btnGuardarRuta">Usar como mi ruta</button>
+      <div class="rutas" id="listaRutas"></div>
+      <!-- Mientras graba -->
+      <div class="grabando" id="grabandoBox" hidden>
+        <div class="grab-titulo"><span class="rec" aria-hidden="true"></span><b>Grabando ruta</b><span id="grabandoInfo"></span></div>
+        <label for="nombreRuta">Nombre de la ruta</label>
+        <input id="nombreRuta" maxlength="30">
+        <div class="ruta-btns" style="padding:0">
+          <button class="primary" id="btnTerminarGrab">■ Terminar y guardar</button>
+          <button id="btnCancelarGrab">Cancelar</button>
+        </div>
       </div>
-      <div class="ruta-btns"><button class="link" id="btnBorrarRuta" hidden>Borrar mi ruta guardada</button></div>
+      <div class="ruta-btns" id="accionesRuta">
+        <button class="primary" id="btnGrabar" style="flex:1">⏺ Grabar ruta nueva</button>
+      </div>
+      <details class="sub-opc">
+        <summary>O guardar una vuelta completa de hoy</summary>
+        <div class="ruta-btns">
+          <select id="selVueltaRuta" aria-label="Vuelta para guardar como ruta"></select>
+          <button id="btnGuardarRuta">Guardar</button>
+        </div>
+      </details>
+      <div class="empty" id="rutaMsg" hidden></div>
     </section>
   </div>
 </div>
@@ -521,7 +558,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 10; // versión más nueva de la app de Android
+const ULTIMA_APK = 11; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -600,9 +637,23 @@ function posicionesDeControl(R){
   });
   return S;
 }
+/* ---------- Mis rutas (hasta 5) ----------
+   Cada ruta: {id, nombre, fecha, pts}. Una de ellas está "en uso". */
+const MAX_RUTAS = 5;
+function leerRutas(){
+  let R = leer("r29-rutas");
+  if(!R){                                         // pasar la ruta vieja (de una sola) a la lista nueva
+    R = []; const vieja = leer("r29-ruta");
+    if(vieja && vieja.pts){ R.push({id:"r"+Date.now(), nombre:"Mi ruta", fecha:vieja.fecha||hoy(), pts:vieja.pts}); guardar("r29-ruta-activa", R[0].id); }
+    guardar("r29-rutas", R);
+  }
+  return R;
+}
 function cargarRuta(){
-  const g = leer("r29-ruta");
-  st.ruta = prepararRuta(g && g.pts ? g.pts : RUTA_BASE);
+  const R = leerRutas(), id = leer("r29-ruta-activa");
+  const g = R.find(r=>r.id===id);
+  st.ruta = prepararRuta(g ? g.pts : RUTA_BASE);
+  if(st.ruta && g){ st.ruta.id = g.id; st.ruta.nombre = g.nombre; }
   st.rutaFecha = g && g.fecha;
 }
 
@@ -627,6 +678,7 @@ function aprenderDeMarcas(marcas, plan){
     const min = (tp - ta)/60000;
     if(min < 1 || min > 60) continue;                  // datos raros (marcas a mano, pausas) no cuentan
     TRAMOS[clave] = [P.k, new Date(ta).getHours(), +min.toFixed(2)];
+    aprenderPerfil(A, P, ta, tp);
     cambio = true;
   }
   if(!cambio) return;
@@ -635,6 +687,48 @@ function aprenderDeMarcas(marcas, plan){
   Object.keys(TRAMOS).forEach(k=>{ if(k.split("|")[0] < limite) delete TRAMOS[k]; });
   guardar(LLAVE_TRAMOS, TRAMOS);
   indiceTramos = null;
+}
+/* ---------- Tu ritmo DENTRO de cada tramo ----------
+   No vas parejo: en curvas, semáforos o el centro vas más lento. Con la ruta en uso,
+   la app guarda qué parte del tiempo del tramo llevas en cada parte del camino
+   (10 pedacitos). Ej.: a mitad del camino ya se te fue el 60% del tiempo. */
+const LLAVE_PERFILES = "r29-perfiles";
+let PERFILES = leer(LLAVE_PERFILES) || {};    // ruta → tramo → lista de perfiles (11 números de 0 a 1)
+function aprenderPerfil(A, P, ta, tp){
+  const R = st.ruta; if(!R || !R.id) return;
+  const sA = R.S[A.k], sP = R.S[P.k]; if(!(sP > sA)) return;
+  const pts = trazaActual().filter(q=> q[2] >= ta && q[2] <= tp);
+  if(pts.length < 6) return;
+  const cajas = Array.from({length:11}, ()=>[]);
+  pts.forEach(q=>{
+    const pr = proyectar(R, q[0], q[1], sA-50, sP+50);
+    if(!pr || pr.d > 60) return;                                  // fuera de la ruta (desvío): no cuenta
+    const fd = Math.max(0, Math.min(1, (pr.s - sA)/(sP - sA)));    // qué parte del camino
+    const ft = (q[2] - ta)/(tp - ta);                              // qué parte del tiempo
+    cajas[Math.round(fd*10)].push(ft);
+  });
+  const perfil = cajas.map((c,b)=> b===0 ? 0 : b===10 ? 1 : (c.length ? c.reduce((x,y)=>x+y,0)/c.length : null));
+  // Llenar huecos y asegurar que nunca "retroceda" el tiempo
+  for(let b=1;b<10;b++) if(perfil[b]==null){ let n=b+1; while(perfil[n]==null) n++; perfil[b] = perfil[b-1] + (perfil[n]-perfil[b-1])/(n-b+1); }
+  for(let b=1;b<11;b++) perfil[b] = Math.max(perfil[b], perfil[b-1]);
+  if(cajas.filter(c=>c.length).length < 4) return;                // muy pocos datos
+  const porRuta = PERFILES[R.id] = PERFILES[R.id] || {};
+  const lista = porRuta[P.k] = porRuta[P.k] || [];
+  lista.push(perfil.map(x=>+x.toFixed(3)));
+  if(lista.length > 12) lista.shift();                           // guardar las últimas 12 veces
+  guardar(LLAVE_PERFILES, PERFILES);
+}
+// Perfil típico del tramo que llega al punto k (o null si no hay al menos 2 vueltas)
+function perfilTipico(k){
+  const lista = st.ruta && st.ruta.id && PERFILES[st.ruta.id] && PERFILES[st.ruta.id][k];
+  if(!lista || lista.length < 2) return null;
+  return Array.from({length:11}, (_,b)=> mediana(lista.map(p=>p[b])));
+}
+// Convierte "qué parte del camino llevo" en "qué parte del tiempo debería llevar"
+function partePorRitmo(perfil, fd){
+  if(!perfil) return fd;
+  const x = Math.max(0, Math.min(1, fd))*10, b = Math.min(9, Math.floor(x));
+  return perfil[b] + (perfil[b+1]-perfil[b])*(x-b);
 }
 function mediana(v){ const a=[...v].sort((x,y)=>x-y), m=a.length>>1; return a.length%2 ? a[m] : (a[m-1]+a[m])/2; }
 // ¿Cuánto te demoras normalmente en el tramo que llega al punto k, saliendo a esa hora?
@@ -768,6 +862,10 @@ function calcular(){
   const minTramo = Math.max(1,(P.t - A.t)/60000);
   const debido = Math.min(1, Math.max(0,(t - A.t)/(minTramo*60000)));
   if(real==null) real = Math.min(1, Math.max(0, 1 - dist/tramo));
+  // Con tu ritmo aprendido, "la mitad del camino" puede ser más o menos de la mitad del tiempo
+  const perfil = r.porRuta ? perfilTipico(P.k) : null;
+  r.conRitmo = !!perfil;
+  real = partePorRitmo(perfil, real);
   r.delta = (real - debido)*minTramo;
   if(r.minRestantes < 0) r.delta = Math.min(r.delta, r.minRestantes);
   // PRONÓSTICO: ¿a qué hora llegarías si sigues así?
@@ -780,7 +878,7 @@ function calcular(){
   if(restante != null){
     r.llegada = t + restante*60000;
     r.margen = (P.t - r.llegada)/60000;   // + llegarías con adelanto, − llegarías tarde
-    r.fuente = r.tipico ? "tus días anteriores" : "tu ritmo del último minuto";
+    r.fuente = r.tipico ? (r.conRitmo ? "tus días anteriores y tu ritmo en este tramo" : "tus días anteriores") : "tu ritmo del último minuto";
   }
   return r;
 }
@@ -1196,7 +1294,10 @@ function planParaMotor(){
       const o = {i:p.i, t:p.t, nombre:p.nombre, lat:p.lat, lon:p.lon, salida:p.salida, vuelta:p.vuelta};
       const A = st.plan[j-1];
       if(st.ruta && A && !p.salida && A.vuelta===p.vuelta){ o.s = st.ruta.S[p.k]; o.sAnt = st.ruta.S[A.k]; }
-      if(A && !p.salida && A.vuelta===p.vuelta){ const tip = tiempoTipico(p.k, new Date(A.t).getHours()); if(tip) o.tip = +tip.min.toFixed(2); }
+      if(A && !p.salida && A.vuelta===p.vuelta){
+        const tip = tiempoTipico(p.k, new Date(A.t).getHours()); if(tip) o.tip = +tip.min.toFixed(2);
+        const per = perfilTipico(p.k); if(per && o.s!=null) o.perfil = per.map(x=>+x.toFixed(3));
+      }
       return o;
     }),
     ruta: st.ruta ? st.ruta.pts.map(q=>[q[0],q[1]]) : null,
@@ -1547,6 +1648,8 @@ function pintarMapa(){
   // Lista de vueltas para "guardar ruta": solo se recalcula si cambiaron las marcas
   const clave = Object.keys(marcasActuales()).length + "|" + (st.sim?1:0);
   if(clave !== M.claveVueltas){ M.claveVueltas = clave; pintarPanelRuta(); }
+  const grab = leer("r29-grabando");
+  if(grab){ const pts = trazaActual().filter(q=> q[2] >= grab.desde); $("grabandoInfo").textContent = `desde las ${fmt(grab.desde)} · ${largoKm(pts).toFixed(1)} km`; }
   // La ruta guardada solo se redibuja si cambió
   if(M.rutaDibujada !== st.ruta){ M.rutaDibujada = st.ruta; M.ruta.setLatLngs(st.ruta ? st.ruta.pts.map(q=>[q[0],q[1]]) : []); }
   // El recorrido: solo se agregan los puntos nuevos (no se redibuja todo).
@@ -1588,7 +1691,7 @@ $("btnTema").onclick = ()=>{
   guardar("r29-tema", M.tema); ponerTema();
 };
 
-/* ---------- Guardar una vuelta grabada como "mi ruta" ---------- */
+/* ---------- Mis rutas: grabar, usar, ver y borrar ---------- */
 function vueltasCompletas(){
   // Vueltas donde quedó marcada la salida de Caña Brava y la llegada a Caña Brava
   const marcas = marcasActuales(), res = [];
@@ -1602,39 +1705,110 @@ function vueltasCompletas(){
   });
   return res;
 }
+function mensajeRuta(txt){ $("rutaMsg").hidden = !txt; $("rutaMsg").innerHTML = txt || ""; }
+function largoKm(pts){ let d=0; for(let i=1;i<pts.length;i++) d += distancia({lat:pts[i-1][0],lon:pts[i-1][1]},{lat:pts[i][0],lon:pts[i][1]}); return d/1000; }
+function guardarRutaNueva(nombre, pts){
+  const R = leerRutas();
+  if(R.length >= MAX_RUTAS){ mensajeRuta(`Ya tienes ${MAX_RUTAS} rutas guardadas. Borra una para guardar otra.`); return false; }
+  // Quitar puntos repetidos muy juntos (menos de 8 m) para que la ruta quede limpia
+  const limpia = [];
+  pts.forEach(q=>{ const u = limpia[limpia.length-1]; if(!u || distancia({lat:u[0],lon:u[1]},{lat:q[0],lon:q[1]}) >= 8) limpia.push([q[0],q[1]]); });
+  if(limpia.length < 20){ mensajeRuta("La grabación quedó muy corta. Graba un recorrido más largo (idealmente de Caña Brava a Caña Brava)."); return false; }
+  const nueva = {id:"r"+Date.now(), nombre: nombre || `Ruta ${R.length+1}`, fecha: hoy(), pts: limpia};
+  R.push(nueva); guardar("r29-rutas", R);
+  if(!st.ruta) usarRuta(nueva.id);                // si no había ninguna en uso, usar esta
+  return true;
+}
+function usarRuta(id){
+  guardar("r29-ruta-activa", id); cargarRuta();
+  if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
+  M.previa && M.mapa.removeLayer(M.previa); M.previa = null;
+  pintarPanelRuta(); pintarMapa(); verTodo();
+}
+let borrarPendiente = null;
+function borrarRuta(id){
+  if(borrarPendiente !== id){ borrarPendiente = id; pintarPanelRuta(); setTimeout(()=>{ if(borrarPendiente===id){ borrarPendiente=null; pintarPanelRuta(); } }, 4000); return; }
+  borrarPendiente = null;
+  const R = leerRutas().filter(r=>r.id!==id); guardar("r29-rutas", R);
+  if(leer("r29-ruta-activa")===id){ guardar("r29-ruta-activa", null); cargarRuta(); if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); } }
+  pintarPanelRuta(); pintarMapa();
+}
+function verRuta(id){
+  const g = leerRutas().find(r=>r.id===id); if(!g || !M.mapa) return;
+  if(M.previa) M.mapa.removeLayer(M.previa);
+  M.previa = L.polyline(g.pts, {color:"#8e44ad", weight:6, opacity:.85, dashArray:"10 8", lineCap:"round", lineJoin:"round", interactive:false}).addTo(M.mapa);
+  M.seguir = false; $("btnSeguir").classList.remove("on");
+  M.orientar = false; if(M.mapa.setBearing) M.mapa.setBearing(0); pintarBrujula();
+  M.mapa.fitBounds(M.previa.getBounds().pad(0.1));
+  mensajeRuta(`Mostrando <b>${g.nombre}</b> en morado. Toca “Usar” si quieres que sea la de hoy.`);
+}
 function pintarPanelRuta(){
   if(!st.cfg) return;
-  if(st.ruta){
-    $("rutaEstado").textContent = `${(st.ruta.total/1000).toFixed(1)} km`;
-    $("rutaTxt").innerHTML = `Tienes una ruta guardada${st.rutaFecha ? " del "+st.rutaFecha : ""}. La app mide la distancia <b>por esa ruta</b>. Si cambian los desvíos, graba otra vuelta y guárdala encima.`;
-  } else {
-    $("rutaEstado").textContent = "sin guardar";
-    $("rutaTxt").innerHTML = "Todavía no tienes ruta guardada. Haz una vuelta completa con el GPS encendido (de Caña Brava a Caña Brava) y después escógela aquí. Desde ese momento la distancia se mide <b>por las calles que tú haces</b>.";
+  const R = leerRutas(), activa = leer("r29-ruta-activa"), grab = leer("r29-grabando");
+  $("rutasCuenta").textContent = `${R.length} de ${MAX_RUTAS}`;
+  $("rutaTxt").innerHTML = R.length
+    ? "La ruta <b>en uso</b> es con la que la app mide la distancia por las calles y aprende tu ritmo en cada tramo."
+    : "Todavía no tienes rutas. Toca <b>Grabar ruta nueva</b> en Caña Brava, haz la vuelta completa y al llegar toca <b>Terminar y guardar</b>.";
+  // Lista
+  const L1 = $("listaRutas"); L1.innerHTML = "";
+  R.forEach(r=>{
+    const div = document.createElement("div");
+    div.className = "ruta-item" + (r.id===activa ? " activa" : "");
+    div.innerHTML = `<div><b></b><small>${largoKm(r.pts).toFixed(1)} km · grabada el ${new Date(r.fecha+"T12:00").toLocaleDateString("es-CO",{day:"numeric",month:"short"})}</small></div>
+      <div class="botones">
+        ${r.id===activa ? '<button class="en-uso" disabled>✓ En uso</button>' : '<button class="primary usar">Usar esta ruta</button>'}
+        <button class="ver">👁 Ver</button>
+        <button class="borrar">${borrarPendiente===r.id ? "¿Seguro? Toca otra vez" : "🗑 Borrar"}</button>
+      </div>`;
+    div.querySelector("b").textContent = r.nombre;
+    div.querySelector(".usar")?.addEventListener("click", ()=> usarRuta(r.id));
+    div.querySelector(".ver").addEventListener("click", ()=> verRuta(r.id));
+    div.querySelector(".borrar").addEventListener("click", ()=> borrarRuta(r.id));
+    L1.appendChild(div);
+  });
+  // Grabación
+  $("grabandoBox").hidden = !grab;
+  $("accionesRuta").hidden = !!grab;
+  if(grab){
+    const pts = trazaActual().filter(q=> q[2] >= grab.desde);
+    $("grabandoInfo").textContent = `desde las ${fmt(grab.desde)} · ${largoKm(pts).toFixed(1)} km`;
+    if(document.activeElement !== $("nombreRuta")) $("nombreRuta").value = grab.nombre;
   }
-  $("btnBorrarRuta").hidden = !st.ruta;
+  $("btnGrabar").disabled = R.length >= MAX_RUTAS;
+  $("btnGrabar").textContent = R.length >= MAX_RUTAS ? "Ya tienes 5 rutas: borra una para grabar" : "⏺ Grabar ruta nueva";
+  // Guardar una vuelta completa de hoy
   const vs = vueltasCompletas(), sel = $("selVueltaRuta");
   sel.innerHTML = "";
   vs.forEach(x=> sel.add(new Option(`Vuelta ${x.v} (${fmt(x.desde)} → ${fmt(x.hasta)})`, x.v)));
   if(!vs.length) sel.add(new Option("Aún no hay vueltas completas hoy", ""));
-  sel.disabled = !vs.length; $("btnGuardarRuta").disabled = !vs.length;
+  sel.disabled = !vs.length; $("btnGuardarRuta").disabled = !vs.length || R.length >= MAX_RUTAS;
 }
+$("btnGrabar").onclick = ()=>{
+  if(!st.nativo && st.gpsWatch==null && !st.sim){ mensajeRuta("Primero prende el GPS (en la pestaña Ruta) y luego toca Grabar."); return; }
+  const n = leerRutas().length + 1;
+  guardar("r29-grabando", {desde: ahora(), nombre: `Ruta ${n} · ${new Date().toLocaleDateString("es-CO",{day:"numeric",month:"short"})}`});
+  mensajeRuta(""); hablar("Grabando ruta.", true); pintarPanelRuta();
+};
+$("btnCancelarGrab").onclick = ()=>{ guardar("r29-grabando", null); mensajeRuta("Grabación cancelada."); pintarPanelRuta(); };
+$("btnTerminarGrab").onclick = ()=>{
+  const g = leer("r29-grabando"); if(!g) return;
+  const pts = trazaActual().filter(q=> q[2] >= g.desde);
+  const nombre = $("nombreRuta").value.trim() || g.nombre;
+  if(guardarRutaNueva(nombre, pts)){
+    guardar("r29-grabando", null);
+    mensajeRuta(`<b>¡Listo! Guardé “${nombre.replace(/[<>&]/g,"")}”.</b> Tócale “Usar esta ruta” cuando quieras que sea la de hoy.`);
+    hablar("Ruta guardada.", true);
+  }
+  pintarPanelRuta(); pintarMapa();
+};
+$("nombreRuta").addEventListener("input", ()=>{ const g = leer("r29-grabando"); if(g){ g.nombre = $("nombreRuta").value; guardar("r29-grabando", g); } });
 $("btnGuardarRuta").onclick = ()=>{
   const x = vueltasCompletas().find(z=> String(z.v)===$("selVueltaRuta").value);
   if(!x) return;
-  const pts = x.pts.map(q=>[q[0],q[1]]);
-  if(st.sim){ st.ruta = prepararRuta(pts); st.rutaFecha = "prueba"; }
-  else { guardar("r29-ruta", {fecha:hoy(), pts}); cargarRuta(); }
-  if(st.nativo){ app.detener(); app.iniciar(planParaMotor(), JSON.stringify(st.marcas), st.voz); }
-  hablar("Ruta guardada.", true);
-  pintarPanelRuta(); pintarMapa(); verTodo();
-  $("rutaTxt").innerHTML = `<b>¡Listo! Guardé la vuelta ${x.v} como tu ruta.</b> ` + $("rutaTxt").innerHTML;
-};
-let confirmarBorrar = false;
-$("btnBorrarRuta").onclick = ()=>{
-  if(!confirmarBorrar){ confirmarBorrar = true; $("btnBorrarRuta").textContent = "Toca otra vez para borrarla"; setTimeout(()=>{ confirmarBorrar=false; $("btnBorrarRuta").textContent="Borrar mi ruta guardada"; }, 4000); return; }
-  confirmarBorrar = false; $("btnBorrarRuta").textContent = "Borrar mi ruta guardada";
-  try{ localStorage.removeItem("r29-ruta"); }catch(e){}
-  cargarRuta(); pintarPanelRuta(); pintarMapa();
+  if(guardarRutaNueva(`Vuelta ${x.v} · ${new Date().toLocaleDateString("es-CO",{day:"numeric",month:"short"})}`, x.pts)){
+    mensajeRuta(`<b>¡Listo! Guardé la vuelta ${x.v} como ruta.</b>`); hablar("Ruta guardada.", true);
+  }
+  pintarPanelRuta(); pintarMapa();
 };
 
 /* ---------- Compartir el resumen del día por WhatsApp ---------- */
