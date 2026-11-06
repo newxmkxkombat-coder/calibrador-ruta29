@@ -333,7 +333,7 @@ nav.tabs button[aria-current="page"]{color:var(--ink);box-shadow:inset 0 3px 0 v
         <select id="inPlanilla"></select>
       </div>
       <div class="field grow">
-        <label for="inVueltas">Vueltas hoy</label>
+        <label for="inVueltas" id="lblVueltas">Vueltas hoy</label>
         <select id="inVueltas"></select>
       </div>
     </div>
@@ -814,17 +814,21 @@ function armarHorario(cfg, corrimientoMin=0){
       for(let k=0; k<CICLO.length; k++) agregar(v+1, k, base);
     }
   } else {
-    // hora = marca de Palmas. Primero media vuelta Palmas → Caña Brava (sin 10 de adelanto)
+    // hora = marca de Palmas. Primero media vuelta Palmas → Villa C / Caña Brava (sin 10 de adelanto)
     const base = base0 - CICLO[IDX_PALMAS].min*60000;
     for(let k=IDX_PALMAS; k<CICLO.length; k++) agregar(1, k, base, k===IDX_PALMAS);
-    // luego vueltas completas desde Caña Brava
-    for(let v=1; v<cfg.vueltas; v++){
-      const b = base + v*DURACION_CICLO*60000;
-      for(let k=0; k<CICLO.length; k++) agregar(v+1, k, b);
+    // Luego las vueltas completas. La primera arranca en el Polideportivo a la hora
+    // que cae en múltiplo de 5 después de llegar y descansar (como en la planilla:
+    // Palmas 5:44 → llega 6:38 → Polideportivo 6:55). Termina en Villa C, como la planilla.
+    const llegada = base + CICLO[CICLO.length-1].min*60000;
+    const minimo = llegada + (DURACION_CICLO - CICLO[CICLO.length-1].min)*60000;   // 16 min después de llegar
+    const cinco = 5*60000;
+    const offset = new Date(minimo).getTimezoneOffset()*60000;                      // redondear en hora local
+    const poli1 = Math.ceil((minimo - offset)/cinco)*cinco + offset;
+    for(let v=0; v<cfg.vueltas; v++){
+      const b = poli1 + v*DURACION_CICLO*60000;
+      for(let k=0; k<CICLO.length; k++) agregar(v+2, k, b);
     }
-    // y al final media vuelta Caña Brava → Palmas, para terminar donde empezaste
-    const bf = base + cfg.vueltas*DURACION_CICLO*60000;
-    for(let k=0; k<=IDX_PALMAS; k++) agregar(cfg.vueltas+1, k, bf);
   }
   lista.forEach((m,i)=> m.i = i);
   return lista;
@@ -1906,7 +1910,7 @@ function elegirPunto(p){
   $("lblHora").textContent = p==="cana" ? "Hora de la planilla en el Polideportivo" : "Hora de la planilla en Palmas";
   $("helpHora").textContent = p==="cana"
     ? "Es la primera hora de tu planilla. La app pone la salida de Caña Brava 10 minutos antes."
-    : "Sales de Palmas a esa misma hora, sin adelanto.";
+    : "Sales de Palmas a esa misma hora, sin adelanto. Vueltas = las vueltas completas después de la media vuelta de Palmas.";
   previsualizar();
 }
 function leerFormulario(){
@@ -2075,7 +2079,8 @@ aprenderDeMarcas(st.marcas, st.plan);
 $("btnVoice").setAttribute("aria-checked", st.voz);
 if(app) leerMotor();
 // Borrar marcas dobles que hayan quedado (subida y bajada del mismo punto casi al mismo tiempo)
-if(st.cfg && limpiarMarcasDobles() && st.nativo){ actualizarMotor(); }
+limpiarMarcasDobles();
+if(st.cfg && st.nativo) actualizarMotor();   // el motor recibe el horario corregido aunque ya estuviera andando
 if(st.cfg){ $("tabs").hidden=false; $("pllSel").value = st.cfg.planilla; irA("Ruta"); if(leer("r29-manejo")) ponerManejo(true); }
 else mostrarSetup();
 setInterval(()=>{
