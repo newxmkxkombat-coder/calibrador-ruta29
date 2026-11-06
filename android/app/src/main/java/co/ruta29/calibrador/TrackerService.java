@@ -64,6 +64,7 @@ public class TrackerService extends Service implements LocationListener {
     private final Handler h = new Handler(Looper.getMainLooper());
     private long ultimaVoz = 0;
     private String ultimoEstado = "";
+    private String candidato = ""; private long candidatoDesde = 0;
     private boolean avisoUnMinuto = false, avisoSalga = false;
     private double cercaD = -1; private long cercaT = 0;
     private boolean porUbicar = false; // al prender el GPS: calcular en qué tramo voy
@@ -161,6 +162,11 @@ public class TrackerService extends Service implements LocationListener {
                             .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
                     ttsListo = true;
+                    tts.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener() {
+                        @Override public void onStart(String id) { }
+                        @Override public void onDone(String id) { if (enFila > 0) enFila--; }
+                        @Override public void onError(String id) { if (enFila > 0) enFila--; }
+                    });
                     hablar("Calibrador activo.", true);
                 }
             });
@@ -478,6 +484,9 @@ public class TrackerService extends Service implements LocationListener {
                 nombre + " " + hora + " · faltan " + faltan, msg + ultimoTexto());
 
         String estadoVoz = cls + (riesgo ? "-riesgo" : "");
+        if (!estadoVoz.equals(candidato)) { candidato = estadoVoz; candidatoDesde = ahora; }
+        boolean estable = ahora - candidatoDesde >= 10000;   // mismo estado 10 s seguidos
+        if (!estable) return;
         if (!estadoVoz.equals(ultimoEstado)) {
             hablar(riesgo ? msg : msg + " " + textoMin(delta) + " para " + nombre + ".", cls.equals("bad"));
             ultimoEstado = estadoVoz;
@@ -506,13 +515,22 @@ public class TrackerService extends Service implements LocationListener {
     }
 
     // ================= VOZ =================
+    private String ultimoDicho = "";
+    private long ultimoDichoT = 0;
     private void hablar(String txt, boolean forzar) {
         if (!voz || !ttsListo || tts == null) return;
         long ahora = System.currentTimeMillis();
-        if (!forzar && ahora - ultimaVoz < Math.min(60000, vozCada)) return;
-        ultimaVoz = ahora;
-        tts.speak(txt, TextToSpeech.QUEUE_FLUSH, null, "r29");
+        // No repetir la misma frase dentro de 30 segundos
+        if (txt.equals(ultimoDicho) && ahora - ultimoDichoT < 30000) return;
+        // Los avisos normales esperan su turno y nunca interrumpen
+        if (!forzar && (ahora - ultimaVoz < Math.min(60000, vozCada) || tts.isSpeaking())) return;
+        // Los importantes tampoco cortan: se ponen en fila (máximo 2 esperando)
+        if (forzar && tts.isSpeaking() && enFila >= 2) return;
+        ultimaVoz = ahora; ultimoDicho = txt; ultimoDichoT = ahora;
+        enFila++;
+        tts.speak(txt, TextToSpeech.QUEUE_ADD, null, "r29-" + ahora);   // QUEUE_ADD = a la fila, sin cortar
     }
+    private volatile int enFila = 0;
 
     private static String textoMin(double m) {
         double a = Math.abs(m);

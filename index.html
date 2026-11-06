@@ -595,7 +595,7 @@ const TOTAL_PLANILLAS = 24;
 const ADELANTO_META = 2.5;
 const RADIO_MARCA = 100, RADIO_CERCA = 300, RADIO_SALIDA = 150, FACTOR_CALLES = 1.3;
 const MIRAR_ADELANTE = 3; // si no vio un punto, revisa también los 3 siguientes
-const ULTIMA_APK = 16; // versión más nueva de la app de Android
+const ULTIMA_APK = 17; // versión más nueva de la app de Android
 const URL_APK = "https://newxmkxkombat-coder.github.io/calibrador-ruta29/calibrador-ruta29.apk";
 
 /* =====================================================================
@@ -1039,11 +1039,13 @@ function vozCada(){ return (leer("r29-vozcada") || 1) * 60000; }
 function hablar(txt, forzar=false){
   if(st.nativo || !st.voz || !("speechSynthesis" in window)) return;
   const t = Date.now();
-  if(!forzar && t - st.ultimaVoz < vozCada()) return;
-  st.ultimaVoz = t;
-  speechSynthesis.cancel();
+  if(txt === st.ultimoDicho && t - (st.ultimoDichoT||0) < 30000) return;     // no repetir la misma frase
+  const hablando = speechSynthesis.speaking || speechSynthesis.pending;
+  if(!forzar && (t - st.ultimaVoz < vozCada() || hablando)) return;          // los normales esperan su turno
+  if(forzar && speechSynthesis.pending) return;                               // no amontonar
+  st.ultimaVoz = t; st.ultimoDicho = txt; st.ultimoDichoT = t;
   const u = new SpeechSynthesisUtterance(txt); u.lang="es-CO"; u.rate=1.05;
-  speechSynthesis.speak(u);
+  speechSynthesis.speak(u);                                                   // sin cancel(): nunca corta a la mitad
 }
 
 /* =====================================================================
@@ -1117,7 +1119,10 @@ function pintar(){
     $("statusBig").textContent = fmtDif(d)+" min";
     $("statusMsg").textContent = msg;
     const estadoVoz = cls + (riesgo ? "-riesgo" : "");
-    if(estadoVoz!==st.ultimoEstado){ hablar(riesgo ? msg : `${msg} ${textoMin(d)} para ${P.nombre}.`, cls==="bad"); st.ultimoEstado=estadoVoz; }
+    if(estadoVoz !== st.candidato){ st.candidato = estadoVoz; st.candidatoDesde = Date.now(); }
+    const estable = Date.now() - st.candidatoDesde >= 10000 || st.sim;   // mismo estado 10 s seguidos
+    if(!estable){}
+    else if(estadoVoz!==st.ultimoEstado){ hablar(riesgo ? msg : `${msg} ${textoMin(d)} para ${P.nombre}.`, cls==="bad"); st.ultimoEstado=estadoVoz; }
     else if(riesgo){ if(Date.now()-st.ultimaVoz > 90000) hablar(msg, true); }
     else hablar(`${textoMin(d)} para ${P.nombre}.`);
   }
